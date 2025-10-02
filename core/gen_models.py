@@ -396,7 +396,8 @@ class LocalModel(GenerationModel):
 	def _prepare_generation_args(self, gen_args: Dict) -> Dict:
 		gen_params = {**self.inference_args}
 		gen_params.update(gen_args)
-		gen_params.pop("return_full_text", None)
+		for legacy_key in ("return_full_text", "stop", "echo", "n", "max_tokens", "logprobs"):
+			gen_params.pop(legacy_key, None)
 		if gen_params.get("num_return_sequences", 1) < 1:
 			gen_params["num_return_sequences"] = 1
 		if gen_params.get("num_return_sequences", 1) > 1 and not gen_params.get("do_sample", False):
