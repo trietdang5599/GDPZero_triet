@@ -251,7 +251,12 @@ class OpenLoopMCTS(MCTS):
 	def get_best_realization(self, state:DialogSession, action: int):
 		prefetch_state = self._to_string_rep(state) + "__" + self.player.dialog_acts[action]
 		if prefetch_state not in self.realizations_Vs:
-			raise Exception("querying a state that has no realizations sampled before")
+			logger.warning("No cached realizations for state/action; generating on-the-fly.")
+			next_state = self.game.get_next_state(state, action)
+			self._add_new_realizations(next_state)
+			# assume neutral value when no simulation data is available yet
+			self._update_realizations_Vs(next_state, 0.0)
+			return next_state.get_turn_utt(turn=-1, role=state.SYS)
 		# get the counts for all moves
 		# convert to prob
 		curr_best_v = -float('inf')
