@@ -186,6 +186,8 @@ def main(args):
 		backbone_model = OpenAIModel(args.llm)
 	elif args.llm in ['gpt-3.5-turbo']:
 		backbone_model = OpenAIChatModel(args.llm, args.gen_sentences)
+	elif args.llm == 'gpt2':
+		backbone_model = LocalModel('gpt2')
 	elif args.llm == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(args.llm, args.gen_sentences)
 
@@ -204,7 +206,7 @@ if __name__ == "__main__":
 	parser.add_argument("--log", type=int, default=logging.WARNING, help="logging mode", choices=[logging.INFO, logging.DEBUG, logging.WARNING])
 	parser.add_argument("--algo", type=str, default='gdpzero', choices=['gdpzero', 'raw-prompt'], help="planning algorithm")
 	# used by PDP-Zero
-	parser.add_argument('--llm', type=str, default="gpt-3.5-turbo", choices=["code-davinci-002", "gpt-3.5-turbo", "text-davinci-002", "chatgpt"], help='OpenAI model name')
+	parser.add_argument('--llm', type=str, default="gpt-3.5-turbo", choices=["code-davinci-002", "gpt-3.5-turbo", "text-davinci-002", "chatgpt", "gpt2"], help='OpenAI model name')
 	parser.add_argument('--gen_sentences', type=int, default=3, help='number of sentences to generate from the llm. Longer ones will be truncated by nltk.')
 	parser.add_argument('--num_mcts_sims', type=int, default=10, help='number of mcts simulations')
 	parser.add_argument('--max_realizations', type=int, default=3, help='number of realizations per mcts state')

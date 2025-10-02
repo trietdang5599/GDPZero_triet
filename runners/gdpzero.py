@@ -43,6 +43,11 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
+	elif cmd_args.llm == 'gpt2':
+		backbone_model = LocalModel('gpt2')
+		SysModel = PersuaderChatModel
+		UsrModel = PersuadeeChatModel
+		SysPlanner = P4GChatSystemPlanner
 	elif cmd_args.llm == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
 		SysModel = PersuaderChatModel

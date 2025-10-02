@@ -351,40 +351,90 @@ class AzureOpenAIChatModel(AzureOpenAIModel):
 
 
 class LocalModel(GenerationModel):
-	def __init__(self, model_name="EleutherAI/gpt-neo-2.7B", input_max_len=512, stop_symbol="\n", cuda=True):
+	def __init__(self, model_name="gpt2", input_max_len=512, stop_symbol="\n", cuda=True):
+		self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
+		self.cuda = self.device.type == "cuda"
 		self.tokenizer = AutoTokenizer.from_pretrained(model_name, truncation_side="left")
+		if self.tokenizer.pad_token is None:
+			self.tokenizer.pad_token = self.tokenizer.eos_token
 		self.model = AutoModelForCausalLM.from_pretrained(model_name)
-		stop_token_ids = self.tokenizer.encode(stop_symbol)[0]
+		self.model.to(self.device)
+		self.model.eval()
+		self.model.config.pad_token_id = self.tokenizer.pad_token_id
+		stop_token_ids = self.tokenizer.encode(stop_symbol, add_special_tokens=False)
+		self.stop_token_id = stop_token_ids[-1] if len(stop_token_ids) > 0 else self.tokenizer.eos_token_id
 		set_seed(42)
-		if cuda and torch.cuda.is_available():
-			self.cuda = True
-			self.model = self.model.cuda()
-		else:
-			self.cuda = False
-		
 		self.input_max_len = input_max_len
+		self.default_chat_prefixes = {"assistant": "Assistant:", "user": "User:"}
 		self.inference_args = {
 			"max_new_tokens": 128,
 			"temperature": 0.7,
 			"repetition_penalty": 1.0,
-			"eos_token_id": stop_token_ids,
-			"pad_token_id": self.tokenizer.eos_token_id
-			# "return_full_text": False  # not available for manual generation
+			"do_sample": True,
+			"num_return_sequences": 1,
+			"pad_token_id": self.tokenizer.pad_token_id,
+			"eos_token_id": self.stop_token_id
 		}
 
-	def generate(self, input_text:str, **gen_args):
-		# override if gen_args specified
-		gen_params = {**self.inference_args, **gen_args}
-		inputs = self.tokenizer([input_text], return_tensors='pt', truncation=True, max_length=self.input_max_len)
-		if self.cuda:
-			inputs = {k: v.cuda() for k, v in inputs.items()}
-		
-		outputs = self.model.generate(**inputs, **gen_params)
-		gen_only_outputs = outputs[:, len(inputs['input_ids'][0]):]
-		gen_resps = self.tokenizer.batch_decode(gen_only_outputs, skip_special_tokens=True)
+	def _prepare_generation_args(self, gen_args: Dict) -> Dict:
+		gen_params = {**self.inference_args}
+		gen_params.update(gen_args)
+		gen_params.pop("return_full_text", None)
+		if gen_params.get("num_return_sequences", 1) < 1:
+			gen_params["num_return_sequences"] = 1
+		if gen_params.get("num_return_sequences", 1) > 1 and not gen_params.get("do_sample", False):
+			gen_params["do_sample"] = True
+		if gen_params.get("pad_token_id") is None:
+			gen_params["pad_token_id"] = self.tokenizer.pad_token_id
+		if gen_params.get("eos_token_id") is None:
+			gen_params["eos_token_id"] = self.stop_token_id
+		return gen_params
 
-		# format output
+	def _messages_to_prompt(self, messages: List[Dict]) -> str:
+		if not messages:
+			return ""
+		prompt_lines: List[str] = []
+		assistant_prefix = None
+		user_prefix = None
+		for message in messages:
+			content = message.get("content", "").strip()
+			if not content:
+				continue
+			prompt_lines.append(content)
+			colon_idx = content.find(":")
+			if colon_idx != -1:
+				prefix = content[:colon_idx + 1]
+				if message.get("role") == "assistant":
+					assistant_prefix = prefix
+				elif message.get("role") == "user":
+					user_prefix = prefix
+		last_role = messages[-1].get("role")
+		if last_role == "user":
+			next_prefix = assistant_prefix or self.default_chat_prefixes["assistant"]
+		elif last_role == "assistant":
+			next_prefix = user_prefix or self.default_chat_prefixes["user"]
+		else:
+			next_prefix = assistant_prefix or self.default_chat_prefixes["assistant"]
+		prompt_lines.append(f"{next_prefix} ")
+		return "\n".join(prompt_lines)
+
+	def generate(self, input_text: str, **gen_args):
+		gen_params = self._prepare_generation_args(gen_args)
+		inputs = self.tokenizer([input_text], return_tensors='pt', truncation=True, max_length=self.input_max_len)
+		inputs = {k: v.to(self.device) for k, v in inputs.items()}
+		prompt_len = inputs['input_ids'].shape[-1]
+		with torch.no_grad():
+			outputs = self.model.generate(**inputs, **gen_params)
+		gen_only_outputs = outputs[:, prompt_len:].detach().cpu()
+		gen_resps = self.tokenizer.batch_decode(gen_only_outputs, skip_special_tokens=True)
 		gen_output = []
 		for resp in gen_resps:
 			gen_output.append({"generated_text": resp})
 		return gen_output
+
+	def chat_generate(self, messages: List[Dict], **gen_args):
+		prompt = self._messages_to_prompt(messages)
+		return self.generate(prompt, **gen_args)
+
+	def chat_generate_batched(self, messages_list: List[List[Dict]], **gen_args):
+		return [self.chat_generate(messages, **gen_args) for messages in messages_list]

@@ -35,6 +35,11 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
+	elif cmd_args.llm == 'gpt2':
+		backbone_model = LocalModel('gpt2')
+		SysModel = PersuaderChatModel
+		UsrModel = PersuadeeChatModel
+		SysPlanner = P4GChatSystemPlanner
 	elif cmd_args.llm == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
 		SysModel = PersuaderChatModel
@@ -192,7 +197,7 @@ def main(cmd_args):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt"], help='OpenAI model name')
+	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "gpt2"], help='OpenAI model name')
 	parser.add_argument('--gen_sentences', type=int, default=-1, help='max number of sentences to generate. -1 for no limit')
 	parser.add_argument('--output', type=str, default="outputs/raw_prompt.pkl", help='output file')
 	parser.parse_args()
