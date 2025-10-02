@@ -54,6 +54,11 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
+	elif cmd_args.llm == 'qwen2.5-0.5b-instruct':
+		backbone_model = LocalModel('Qwen/Qwen2.5-0.5B-Instruct', trust_remote_code=True)
+		SysModel = PersuaderChatModel
+		UsrModel = PersuadeeChatModel
+		SysPlanner = P4GChatSystemPlanner
 	elif cmd_args.llm == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
 		SysModel = PersuaderChatModel
@@ -230,7 +235,7 @@ def main(cmd_args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--output', type=str, default="outputs/gdpzero_noRS.pkl", help='output file')
-	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "gpt2"], help='OpenAI model name')
+	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "gpt2", "qwen2.5-0.5b-instruct"], help='OpenAI model name')
 	parser.add_argument('--gen_sentences', type=int, default=-1, help='max number of sentences to generate')
 	parser.add_argument('--num_mcts_sims', type=int, default=20, help='number of mcts simulations')
 	parser.add_argument('--max_realizations', type=int, default=3, help='number of realizations per mcts state')

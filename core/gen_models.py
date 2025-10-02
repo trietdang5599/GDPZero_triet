@@ -8,7 +8,7 @@ import nltk
 
 from abc import ABC, abstractmethod
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from core.helpers import DialogSession
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt,	wait_exponential, wait_fixed  # for exponential backoff
@@ -351,13 +351,30 @@ class AzureOpenAIChatModel(AzureOpenAIModel):
 
 
 class LocalModel(GenerationModel):
-	def __init__(self, model_name="gpt2", input_max_len=512, stop_symbol="\n", cuda=True):
+	def __init__(
+		self,
+		model_name: str = "gpt2",
+		input_max_len: int = 512,
+		stop_symbol: str = "\n",
+		cuda: bool = True,
+		trust_remote_code: bool = False,
+		model_kwargs: Optional[Dict] = None,
+	):
 		self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 		self.cuda = self.device.type == "cuda"
-		self.tokenizer = AutoTokenizer.from_pretrained(model_name, truncation_side="left")
+		load_kwargs = model_kwargs.copy() if model_kwargs else {}
+		self.tokenizer = AutoTokenizer.from_pretrained(
+			model_name,
+			truncation_side="left",
+			trust_remote_code=trust_remote_code,
+		)
 		if self.tokenizer.pad_token is None:
 			self.tokenizer.pad_token = self.tokenizer.eos_token
-		self.model = AutoModelForCausalLM.from_pretrained(model_name)
+		self.model = AutoModelForCausalLM.from_pretrained(
+			model_name,
+			trust_remote_code=trust_remote_code,
+			**load_kwargs,
+		)
 		self.model.to(self.device)
 		self.model.eval()
 		self.model.config.pad_token_id = self.tokenizer.pad_token_id
@@ -373,7 +390,7 @@ class LocalModel(GenerationModel):
 			"do_sample": True,
 			"num_return_sequences": 1,
 			"pad_token_id": self.tokenizer.pad_token_id,
-			"eos_token_id": self.stop_token_id
+			"eos_token_id": self.stop_token_id,
 		}
 
 	def _prepare_generation_args(self, gen_args: Dict) -> Dict:
@@ -393,6 +410,15 @@ class LocalModel(GenerationModel):
 	def _messages_to_prompt(self, messages: List[Dict]) -> str:
 		if not messages:
 			return ""
+		if hasattr(self.tokenizer, "apply_chat_template"):
+			try:
+				return self.tokenizer.apply_chat_template(
+					messages,
+					tokenize=False,
+					add_generation_prompt=True,
+				)
+			except Exception as exc:
+				logger.debug(f"chat template fallback due to: {exc}")
 		prompt_lines: List[str] = []
 		assistant_prefix = None
 		user_prefix = None
