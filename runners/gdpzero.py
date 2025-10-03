@@ -36,6 +36,10 @@ def main(cmd_args):
 	user_da = game_ontology['user']['dialog_acts']
 	system_name = PersuasionGame.SYS
 	user_name = PersuasionGame.USR
+	
+	print("System dialog acts: ", sys_da)
+	print("User dialog acts: ", user_da)
+	
 
 	exp_1 = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 	

@@ -160,6 +160,12 @@ For example to compare `outputs/gdpzero_50sims_3rlz_0.25Q0_20dialogs.pkl`
 	stats:  {'win': 91, 'draw': 2, 'lose': 61}
 	```
 
+### Inspecting Saved Dialog Pickles
+Use the snippet below to peek into any output pickle (replace the placeholder path as needed):
+```bash
+~/GDPZero$ python -c "import pickle, pprint; path='outputs/gdpzero.pkl'; data=pickle.load(open(path, 'rb')); print(f'Loaded {len(data)} entries from {path}'); pprint.pp(data[0])"
+```
+
 ## Examples
 
 We provided some example generations in the `output` directory. For instance:

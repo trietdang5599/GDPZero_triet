@@ -1,10 +1,12 @@
 import requests
 import logging
 import torch
-import openai
 import os
 import multiprocessing as mp
 import nltk
+
+from pathlib import Path
+from openai import OpenAI, AzureOpenAI
 
 from abc import ABC, abstractmethod
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
@@ -16,6 +18,55 @@ from utils.utils import hashabledict
 
 
 logger = logging.getLogger(__name__)
+
+
+_ENV_VARS_LOADED = False
+
+
+def _load_env_vars() -> None:
+	"""Populate `os.environ` with keys from the project .env file if not already set."""
+	global _ENV_VARS_LOADED
+	if _ENV_VARS_LOADED:
+		return
+	env_path = Path(__file__).resolve().parents[1] / ".env"
+	if not env_path.exists():
+		logger.debug(".env file not found at %s", env_path)
+		_ENV_VARS_LOADED = True
+		return
+	try:
+		with env_path.open("r", encoding="utf-8") as env_file:
+			for raw_line in env_file:
+				line = raw_line.strip()
+				if not line or line.startswith("#") or "=" not in line:
+					continue
+				key, value = line.split("=", 1)
+				key = key.strip()
+				value = value.split("#", 1)[0].strip().strip("\"'")
+				if key and key not in os.environ:
+					os.environ[key] = value
+	except Exception as exc:
+		logger.warning("Failed to load environment variables from %s: %s", env_path, exc)
+	finally:
+		_ENV_VARS_LOADED = True
+
+
+_load_env_vars()
+
+
+@lru_cache(maxsize=None)
+def _get_openai_client(api_key: str) -> OpenAI:
+	if not api_key:
+		raise ValueError("OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
+	return OpenAI(api_key=api_key)
+
+
+@lru_cache(maxsize=None)
+def _get_azure_openai_client(api_key: str, endpoint: str, api_version: str) -> AzureOpenAI:
+	if not api_key:
+		raise ValueError("MS_OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
+	if not endpoint:
+		raise ValueError("MS_OPENAI_API_BASE is not set; please configure it in the environment or .env file.")
+	return AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
 
 
 class GenerationModel(ABC):
@@ -125,20 +176,21 @@ class OpenAIModel(GenerationModel):
 	API_TOKEN = os.environ.get("OPENAI_API_KEY")
 
 	def __init__(self, model_name="text-curie-001"):
-		# check if model exists
-		openai.api_key = OpenAIModel.API_TOKEN
-		models = openai.Engine.list()
-		if model_name not in [model.id for model in models.data]:
-			raise ValueError(f"model {model_name} not found")
-		
+		self.model_name = model_name
 		self.inference_args = {
 			"model": model_name,
 			"max_tokens": 64,
 			"temperature": 0.7,
 			"echo": False,
 			"n": 1,
-			"stop": "\n"
+			"stop": "\n",
 		}
+		try:
+			available = {model.id for model in _get_openai_client(self.API_TOKEN).models.list().data}
+			if model_name not in available:
+				logger.warning("OpenAI model %s not available for provided API key", model_name)
+		except Exception as exc:
+			logger.debug("Skipping OpenAI model availability check due to: %s", exc)
 		return
 
 	def _update_args(self, new_args):
@@ -156,11 +208,12 @@ class OpenAIModel(GenerationModel):
 			new_args["frequency_penalty"] = new_args.pop("repetition_penalty")
 		return from_cache, {**args, **new_args}
 
+	@staticmethod
 	@lru_cache(maxsize=None)
 	def _cached_generate(**parameters):
-		response = openai.Completion.create(**parameters)
-		return response
-	
+		client = _get_openai_client(OpenAIModel.API_TOKEN)
+		return client.completions.create(**parameters)
+
 	# tried custom implementation of waiting before request, but I think openai is lying about how it calculates the rate limit
 	# takes 3 trials to reach 2^3=8. Then 7 * 8 = 56 sec max. Just to safe we wait a bit more than 10 times
 	@retry(wait=wait_exponential(multiplier=2, min=2, max=8), stop=stop_after_attempt(15))
@@ -170,32 +223,34 @@ class OpenAIModel(GenerationModel):
 		if from_cache:
 			response = OpenAIModel._cached_generate(**parameters)
 		else:
-			response = openai.Completion.create(**parameters)
-		
-		# format to a common format
+			response = _get_openai_client(self.API_TOKEN).completions.create(**parameters)
 		gen_output = []
 		for resp in response.choices:
-			text = resp.text
-			gen_output.append({"generated_text": text})
+			text = getattr(resp, "text", None)
+			if text is None and hasattr(resp, "message"):
+				text = getattr(resp.message, "content", "")
+			gen_output.append({"generated_text": text or ""})
 		return gen_output
-	
+
 
 class OpenAIChatModel(OpenAIModel):
 	def __init__(self, model_name="gpt-3.5-turbo", gen_sentences=-1):
-		# check if model exists
-		openai.api_key = self.API_TOKEN
-		
+		self.model_name = model_name
+		self.gen_sentences = None if gen_sentences < 0 else gen_sentences
 		self.inference_args = {
 			"model": model_name,
 			"max_tokens": 64,
 			"temperature": 0.7,
 			"n": 1,
-			# "stop": "\n"  # no longer need since we are using chat
-			# "echo": False,
 		}
-		self.gen_sentences = None if gen_sentences < 0 else gen_sentences
+		try:
+			available = {model.id for model in _get_openai_client(self.API_TOKEN).models.list().data}
+			if model_name not in available:
+				logger.warning("OpenAI chat model %s not available for provided API key", model_name)
+		except Exception as exc:
+			logger.debug("Skipping OpenAI chat model availability check due to: %s", exc)
 		return
-	
+
 	def _update_args(self, new_args):
 		if "stop" in new_args:
 			new_args.pop("stop")
@@ -204,7 +259,7 @@ class OpenAIChatModel(OpenAIModel):
 		if "return_full_text" in new_args:
 			new_args.pop("return_full_text")
 		return super()._update_args(new_args)
-	
+
 	def generate(self, input_text, **_args):
 		logging.info("It is recommended to use chat_generate instead of generate for OpenAIChatModel")
 		messages = [{
@@ -212,13 +267,15 @@ class OpenAIChatModel(OpenAIModel):
 			"content": input_text
 		}]
 		return self.chat_generate(messages, **_args)
-	
+
+	@staticmethod
 	@lru_cache(maxsize=None)
 	def _cached_generate(**parameters):
+		client = _get_openai_client(OpenAIChatModel.API_TOKEN)
+		parameters = dict(parameters)
 		parameters["messages"] = list(parameters["messages"])
-		response = openai.ChatCompletion.create(**parameters)
-		return response
-	
+		return client.chat.completions.create(**parameters)
+
 	@retry(wait=wait_exponential(multiplier=2, min=2, max=8), stop=stop_after_attempt(15))
 	def chat_generate(self, messages: List[Dict], **gen_args):
 		# generate in a chat format
@@ -229,12 +286,12 @@ class OpenAIChatModel(OpenAIModel):
 			parameters["messages"] = tuple(hashable_messages)  # list cannot be hashed, so cannot do **parameters
 			response = OpenAIChatModel._cached_generate(**parameters)
 		else:
-			response = openai.ChatCompletion.create(**parameters)
-		
-		# format to a common format
+			parameters_for_call = dict(parameters)
+			parameters_for_call["messages"] = messages
+			response = _get_openai_client(self.API_TOKEN).chat.completions.create(**parameters_for_call)
 		gen_output = []
 		for resp in response.choices:
-			text = resp['message']['content']
+			text = getattr(resp.message, "content", "")
 			if self.gen_sentences is not None:
 				sentences = nltk.sent_tokenize(text)
 				if len(sentences) > self.gen_sentences:
@@ -255,44 +312,60 @@ class OpenAIChatModel(OpenAIModel):
 class AzureOpenAIModel(OpenAIModel):
 	API_TOKEN = os.environ.get("MS_OPENAI_API_KEY")
 	API_BASE = os.environ.get("MS_OPENAI_API_BASE")
-	API_TYPE = "azure"
 	API_VERSION = "2022-12-01"
 
 	def __init__(self, model_name="chatgpt-turbo"):
-		# check if model exists
-		openai.api_key = AzureOpenAIModel.API_TOKEN
-		openai.api_base = AzureOpenAIModel.API_BASE
-		openai.api_type = AzureOpenAIModel.API_TYPE
-		openai.api_version = AzureOpenAIModel.API_VERSION
-		
+		self.model_name = model_name
 		self.inference_args = {
-			"engine": model_name,
+			"model": model_name,
 			"max_tokens": 64,
 			"temperature": 0.7,
 			"echo": False,
 			"n": 1,
-			"stop": "\n"
+			"stop": "\n",
 		}
 		return
 
+	@staticmethod
+	@lru_cache(maxsize=None)
+	def _cached_generate(**parameters):
+		client = _get_azure_openai_client(
+			AzureOpenAIModel.API_TOKEN,
+			AzureOpenAIModel.API_BASE,
+			AzureOpenAIModel.API_VERSION,
+		)
+		return client.completions.create(**parameters)
+
+	@retry(wait=wait_exponential(multiplier=2, min=2, max=8), stop=stop_after_attempt(15))
+	def generate(self, input_text, **_args):
+		from_cache, parameters = self._update_args(_args)
+		parameters["prompt"] = input_text
+		if from_cache:
+			response = AzureOpenAIModel._cached_generate(**parameters)
+		else:
+			client = _get_azure_openai_client(self.API_TOKEN, self.API_BASE, self.API_VERSION)
+			response = client.completions.create(**parameters)
+		gen_output = []
+		for resp in response.choices:
+			text = getattr(resp, "text", None)
+			if text is None and hasattr(resp, "message"):
+				text = getattr(resp.message, "content", "")
+			gen_output.append({"generated_text": text or ""})
+		return gen_output
+
 
 class AzureOpenAIChatModel(AzureOpenAIModel):
+	API_VERSION = "2023-03-15-preview"
+
 	def __init__(self, model_name="chatgpt", gen_sentences=-1):
-		# check if model exists
-		openai.api_key = self.API_TOKEN
-		openai.api_base = self.API_BASE
-		openai.api_type = self.API_TYPE
-		openai.api_version = "2023-03-15-preview"
-		
+		self.model_name = model_name
+		self.gen_sentences = None if gen_sentences < 0 else gen_sentences
 		self.inference_args = {
-			"engine": model_name,
+			"model": model_name,
 			"max_tokens": 64,
 			"temperature": 0.7,
 			"n": 1,
-			# "stop": "\n"  # no longer need since we are using chat
-			# "echo": False,
 		}
-		self.gen_sentences = None if gen_sentences < 0 else gen_sentences
 		return
 	
 	def _update_args(self, new_args):
@@ -304,12 +377,18 @@ class AzureOpenAIChatModel(AzureOpenAIModel):
 			new_args.pop("return_full_text")
 		return super()._update_args(new_args)
 	
+	@staticmethod
 	@lru_cache(maxsize=None)
 	def _cached_generate(**parameters):
+		client = _get_azure_openai_client(
+			AzureOpenAIChatModel.API_TOKEN,
+			AzureOpenAIChatModel.API_BASE,
+			AzureOpenAIChatModel.API_VERSION,
+		)
+		parameters = dict(parameters)
 		parameters["messages"] = list(parameters["messages"])
-		response = openai.ChatCompletion.create(**parameters)
-		return response
-	
+		return client.chat.completions.create(**parameters)
+
 	@retry(wait=wait_exponential(multiplier=2, min=2, max=8), stop=stop_after_attempt(15))
 	def chat_generate(self, messages: List[Dict], **gen_args):
 		# generate in a chat format
@@ -320,12 +399,15 @@ class AzureOpenAIChatModel(AzureOpenAIModel):
 			parameters["messages"] = tuple(hashable_messages)  # list cannot be hashed, so cannot do **parameters
 			response = AzureOpenAIChatModel._cached_generate(**parameters)
 		else:
-			response = openai.ChatCompletion.create(**parameters)
+			parameters_for_call = dict(parameters)
+			parameters_for_call["messages"] = messages
+			client = _get_azure_openai_client(self.API_TOKEN, self.API_BASE, self.API_VERSION)
+			response = client.chat.completions.create(**parameters_for_call)
 		
 		# format to a common format
 		gen_output = []
 		for resp in response.choices:
-			text = resp['message']['content']
+			text = getattr(resp.message, "content", "")
 			if self.gen_sentences is not None:
 				sentences = nltk.sent_tokenize(text)
 				if len(sentences) > self.gen_sentences:
