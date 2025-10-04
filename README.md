@@ -160,6 +160,32 @@ For example to compare `outputs/gdpzero_50sims_3rlz_0.25Q0_20dialogs.pkl`
 	stats:  {'win': 91, 'draw': 2, 'lose': 61}
 	```
 
+## Fine-tuning Local LLMs
+Before running GDPZero with a local backbone, you can fine-tune a Hugging Face causal model on the P4G dialogues (or any dataset with the same schema) using `train_llm.py`:
+```bash
+~/GDPZero$ python train_llm.py \
+  --dataset-path data/p4g/300_dialog_turn_based.pkl \
+  --model-name gpt2 \
+  --output-dir outputs/gpt2-gdpzero-ft \
+  --batch-size 2 \
+  --gradient-accumulation 8 \
+  --num-train-epochs 3 \
+  --fp16
+```
+The script accepts alternative dataset paths, role names, and Hugging Face model IDs so you can adapt it to other corpora.
+
+To run GDPZero with the fine-tuned weights, point the simulator to your checkpoint:
+```bash
+~/GDPZero$ python runners/gdpzero.py \
+  --llm local \
+  --local-model-path outputs/gpt2-gdpzero-ft \
+  --num_mcts_sims 10 \
+  --max_realizations 3 \
+  --Q_0 0.25 \
+  --output outputs/gdpzero_local.pkl
+```
+You can also pass `--local-model-path` alongside `--llm gpt2` to override the default `gpt2` weights.
+
 ### Inspecting Saved Dialog Pickles
 Use the snippet below to peek into any output pickle (replace the placeholder path as needed):
 ```bash
