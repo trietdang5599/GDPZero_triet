@@ -1,0 +1,66 @@
+defaults: []
+
+exp_name: gdpzero-dpo
+seed: 42
+debug: false
+
+local_dirs:
+  - ./hf_cache
+
+local_run_dir: ${get_local_run_dir:${exp_name},${local_dirs}}
+
+trainer: BasicTrainer
+
+model:
+  name_or_path: gpt2
+  tokenizer_name_or_path: null
+  policy_dtype: float32
+  reference_dtype: float32
+  archive: null
+  block_name: null
+  fsdp_policy_mp: null
+
+loss:
+  name: dpo
+  beta: 0.1
+  label_smoothing: 0.0
+  reference_free: false
+
+# Training schedule
+batch_size: 4
+eval_batch_size: 4
+gradient_accumulation_steps: 1
+optimizer: AdamW
+lr: 5.0e-6
+warmup_steps: 50
+max_grad_norm: 1.0
+n_epochs: 3
+n_examples: null
+n_eval_examples: 64
+n_eval_model_samples: 0
+sample_during_eval: false
+debug_samples: false
+do_first_eval: false
+eval_every: 512
+minimum_log_interval_secs: 10
+activation_checkpointing: false
+fsdp_port: null
+
+max_length: 512
+max_prompt_length: 384
+
+# Dataset specification (override on CLI if needed)
+datasets:
+  - "gdpzero:outputs/gdpzero.pkl"
+
+wandb:
+  enabled: false
+  entity: ""
+  project: ""
+
+hydra:
+  run:
+    dir: ${local_run_dir}
+  output_subdir: null
+  job:
+    chdir: false

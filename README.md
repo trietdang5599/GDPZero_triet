@@ -186,6 +186,32 @@ To run GDPZero with the fine-tuned weights, point the simulator to your checkpoi
 ```
 You can also pass `--local-model-path` alongside `--llm gpt2` to override the default `gpt2` weights.
 
+### Preference Optimization (DPO)
+To fine-tune the backbone with Direct Preference Optimization on the PersuasionForGood dialogues, run:
+```bash
+~/GDPZero$ python train_llm.py \
+  --algorithm dpo \
+  --dataset-path data/p4g/300_dialog_turn_based.pkl \
+  --model-name gpt2 \
+  --output-dir outputs/gpt2-gdpzero-dpo \
+  --batch-size 2 \
+  --gradient-accumulation 8 \
+  --num-train-epochs 3 \
+  --dpo-beta 0.1
+```
+The script builds preference pairs from each dialog turn (ground-truth reply vs. sampled alternative) and optimizes the policy against a frozen reference copy via TRL's `DPOTrainer`.
+
+After the run finishes, plug the DPO-tuned model into GDPZero with:
+```bash
+~/GDPZero$ python runners/gdpzero.py \
+  --llm local \
+  --local-model-path outputs/gpt2-gdpzero-dpo \
+  --num_mcts_sims 10 \
+  --max_realizations 3 \
+  --Q_0 0.25 \
+  --output outputs/gdpzero_dpo.pkl
+```
+
 ### Inspecting Saved Dialog Pickles
 Use the snippet below to peek into any output pickle (replace the placeholder path as needed):
 ```bash

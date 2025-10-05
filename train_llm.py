@@ -9,7 +9,7 @@ import inspect
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import torch
 from torch.utils.data import Dataset
@@ -21,12 +21,28 @@ from transformers import (
     TrainingArguments,
     default_data_collator,
 )
+from transformers.trainer_utils import IntervalStrategy
+from datasets import Dataset as HFDataset
+
+try:
+    from trl import DPOTrainer, DPOConfig
+except ImportError:  # pragma: no cover - optional dependency
+    DPOTrainer = None
 
 
 @dataclass
 class ConversationExample:
     prompt: str
     completion: str
+    dialog_id: str
+    turn_index: int
+
+
+@dataclass
+class PreferenceExample:
+    prompt: str
+    chosen: str
+    rejected: str
     dialog_id: str
     turn_index: int
 
@@ -126,6 +142,52 @@ def build_examples(
     return examples
 
 
+def build_preference_examples(
+    records: Iterable[Dict[str, Any]],
+    *,
+    system_field: str,
+    user_field: str,
+    system_role: str,
+    user_role: str,
+    rng: random.Random,
+) -> List[PreferenceExample]:
+    conversation_examples = build_examples(
+        records,
+        system_field=system_field,
+        user_field=user_field,
+        system_role=system_role,
+        user_role=user_role,
+    )
+    if len(conversation_examples) < 2:
+        raise ValueError("Need at least two conversation examples to build preference pairs for DPO.")
+
+    pool = [ex.completion for ex in conversation_examples]
+    if len(set(pool)) < 2:
+        raise ValueError("Preference pool contains only one unique completion; cannot form rejected samples.")
+
+    preference_examples: List[PreferenceExample] = []
+    for example in conversation_examples:
+        rejected = example.completion
+        attempts = 0
+        while rejected == example.completion and attempts < 20:
+            rejected = rng.choice(pool)
+            attempts += 1
+        if rejected == example.completion:
+            continue
+        preference_examples.append(
+            PreferenceExample(
+                prompt=example.prompt,
+                chosen=example.completion,
+                rejected=rejected,
+                dialog_id=example.dialog_id,
+                turn_index=example.turn_index,
+            )
+        )
+    if not preference_examples:
+        raise ValueError("Failed to generate any preference examples; try adjusting dataset or sampling strategy.")
+    return preference_examples
+
+
 class ConversationDataset(Dataset):
     def __init__(
         self,
@@ -181,14 +243,15 @@ def set_seed(seed: int) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data.")
+    parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data (SFT or DPO).")
     parser.add_argument("--dataset-path", type=Path, default=Path("data/p4g/300_dialog_turn_based.pkl"), help="Path to dialogue dataset (.pkl, .json, .jsonl).")
     parser.add_argument("--model-name", type=str, default="gpt2", help="Hugging Face model identifier to fine-tune.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/ft-model"), help="Where to save checkpoints.")
+    parser.add_argument("--algorithm", type=str, choices=["sft", "dpo"], default="sft", help="Training objective.")
     parser.add_argument("--max-length", type=int, default=512, help="Maximum sequence length for training tokens.")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size.")
     parser.add_argument("--gradient-accumulation", type=int, default=4, help="Gradient accumulation steps.")
-    parser.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate for AdamW.")
+    parser.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate.")
     parser.add_argument("--num-train-epochs", type=float, default=3.0, help="Number of training epochs.")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay.")
     parser.add_argument("--warmup-ratio", type=float, default=0.03, help="Linear warmup ratio.")
@@ -202,6 +265,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fp16", action="store_true", help="Use mixed precision if available.")
     parser.add_argument("--logging-steps", type=int, default=25, help="Trainer logging frequency.")
     parser.add_argument("--save-total-limit", type=int, default=2, help="Max number of saved checkpoints.")
+    parser.add_argument("--dpo-beta", type=float, default=0.1, help="Inverse temperature for the DPO loss.")
+    parser.add_argument("--reference-model-name", type=str, default=None, help="Optional reference model identifier for DPO.")
     return parser.parse_args()
 
 
@@ -210,24 +275,6 @@ def main() -> None:
     set_seed(args.seed)
 
     records = load_raw_records(args.dataset_path)
-    examples = build_examples(
-        records,
-        system_field=args.system_field,
-        user_field=args.user_field,
-        system_role=args.system_role,
-        user_role=args.user_role,
-    )
-    if not examples:
-        raise ValueError("No training examples constructed from dataset.")
-
-    random.shuffle(examples)
-    if args.max_samples and args.max_samples > 0:
-        examples = examples[: args.max_samples]
-
-    val_size = int(len(examples) * args.validation_ratio)
-    val_examples = examples[:val_size] if val_size > 0 else []
-    train_examples = examples[val_size:]
-
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token or "<|pad|>"})
@@ -247,46 +294,143 @@ def main() -> None:
     else:
         effective_max_length = args.max_length
 
-    train_dataset = ConversationDataset(train_examples, tokenizer, effective_max_length)
-    eval_dataset = ConversationDataset(val_examples, tokenizer, effective_max_length) if val_examples else None
+    if args.algorithm == "sft":
+        examples = build_examples(
+            records,
+            system_field=args.system_field,
+            user_field=args.user_field,
+            system_role=args.system_role,
+            user_role=args.user_role,
+        )
+        if not examples:
+            raise ValueError("No training examples constructed from dataset.")
 
-    training_args = TrainingArguments(
-        output_dir=str(args.output_dir),
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation,
-        learning_rate=args.learning_rate,
-        num_train_epochs=args.num_train_epochs,
-        weight_decay=args.weight_decay,
-        warmup_ratio=args.warmup_ratio,
-        logging_steps=args.logging_steps,
-        save_strategy="epoch",
-        eval_strategy="epoch" if eval_dataset is not None else "no",
-        save_total_limit=args.save_total_limit,
-        report_to="none",
-        fp16=args.fp16 and torch.cuda.is_available(),
-    )
+        random.shuffle(examples)
+        if args.max_samples and args.max_samples > 0:
+            examples = examples[: args.max_samples]
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=default_data_collator,
-    )
+        val_size = int(len(examples) * args.validation_ratio)
+        val_examples = examples[:val_size] if val_size > 0 else []
+        train_examples = examples[val_size:]
 
-    unwrap_sig = inspect.signature(trainer.accelerator.unwrap_model)
-    if "keep_torch_compile" not in unwrap_sig.parameters:
-        original_unwrap = trainer.accelerator.unwrap_model
+        train_dataset = ConversationDataset(train_examples, tokenizer, effective_max_length)
+        eval_dataset = ConversationDataset(val_examples, tokenizer, effective_max_length) if val_examples else None
 
-        def unwrap_model_compat(model, *args, **kwargs):
-            kwargs.pop("keep_torch_compile", None)
-            return original_unwrap(model, *args, **kwargs)
+        training_args = TrainingArguments(
+            output_dir=str(args.output_dir),
+            per_device_train_batch_size=args.batch_size,
+            per_device_eval_batch_size=args.batch_size,
+            gradient_accumulation_steps=args.gradient_accumulation,
+            learning_rate=args.learning_rate,
+            num_train_epochs=args.num_train_epochs,
+            weight_decay=args.weight_decay,
+            warmup_ratio=args.warmup_ratio,
+            logging_steps=args.logging_steps,
+            save_strategy="epoch",
+            eval_strategy="epoch" if eval_dataset is not None else "no",
+            save_total_limit=args.save_total_limit,
+            report_to="none",
+            fp16=args.fp16 and torch.cuda.is_available(),
+        )
 
-        trainer.accelerator.unwrap_model = unwrap_model_compat
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            data_collator=default_data_collator,
+        )
 
-    trainer.train()
-    trainer.save_model()
+        unwrap_sig = inspect.signature(trainer.accelerator.unwrap_model)
+        if "keep_torch_compile" not in unwrap_sig.parameters:
+            original_unwrap = trainer.accelerator.unwrap_model
+
+            def unwrap_model_compat(model, *args, **kwargs):
+                kwargs.pop("keep_torch_compile", None)
+                return original_unwrap(model, *args, **kwargs)
+
+            trainer.accelerator.unwrap_model = unwrap_model_compat
+
+        trainer.train()
+        trainer.save_model()
+    else:
+        if DPOTrainer is None:
+            raise ImportError("trl is required for DPO training. Install it with `pip install trl`. ")
+
+        rng = random.Random(args.seed)
+        pref_examples = build_preference_examples(
+            records,
+            system_field=args.system_field,
+            user_field=args.user_field,
+            system_role=args.system_role,
+            user_role=args.user_role,
+            rng=rng,
+        )
+        rng.shuffle(pref_examples)
+        if args.max_samples and args.max_samples > 0:
+            pref_examples = pref_examples[: args.max_samples]
+
+        val_size = int(len(pref_examples) * args.validation_ratio)
+        val_pref = pref_examples[:val_size] if val_size > 0 else []
+        train_pref = pref_examples[val_size:]
+        if not train_pref:
+            raise ValueError("Not enough preference examples for training after splitting.")
+
+        train_dataset = HFDataset.from_list(
+            [{"prompt": ex.prompt, "chosen": ex.chosen, "rejected": ex.rejected} for ex in train_pref]
+        )
+        eval_dataset = (
+            HFDataset.from_list(
+                [{"prompt": ex.prompt, "chosen": ex.chosen, "rejected": ex.rejected} for ex in val_pref]
+            )
+            if val_pref
+            else None
+        )
+
+        reference_name = args.reference_model_name or args.model_name
+        reference_model = AutoModelForCausalLM.from_pretrained(reference_name)
+        if tokenizer.pad_token_id is not None and reference_model.config.pad_token_id != tokenizer.pad_token_id:
+            reference_model.resize_token_embeddings(len(tokenizer))
+            reference_model.config.pad_token_id = tokenizer.pad_token_id
+
+        do_eval = eval_dataset is not None
+        dpo_args = DPOConfig(
+            output_dir=str(args.output_dir),
+            per_device_train_batch_size=args.batch_size,
+            per_device_eval_batch_size=args.batch_size,
+            gradient_accumulation_steps=args.gradient_accumulation,
+            learning_rate=args.learning_rate,
+            num_train_epochs=args.num_train_epochs,
+            weight_decay=args.weight_decay,
+            warmup_ratio=args.warmup_ratio,
+            logging_steps=args.logging_steps,
+            save_strategy=IntervalStrategy.EPOCH,
+            eval_strategy=IntervalStrategy.EPOCH if eval_dataset is not None else IntervalStrategy.NO,
+            save_total_limit=args.save_total_limit,
+            report_to=[],
+            fp16=args.fp16 and torch.cuda.is_available(),
+            bf16=False,
+            remove_unused_columns=False,
+            beta=args.dpo_beta,
+            max_length=effective_max_length,
+            max_prompt_length=min(effective_max_length, args.max_length),
+            gradient_checkpointing=False,
+            do_train=True,
+            do_eval=do_eval,
+        )
+
+        dpo_trainer = DPOTrainer(
+            model,
+            reference_model,
+            args=dpo_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            processing_class=tokenizer,
+        )
+
+        dpo_trainer.train()
+        dpo_trainer.save_model()
+
     tokenizer.save_pretrained(args.output_dir)
 
 
