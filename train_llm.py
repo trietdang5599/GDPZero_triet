@@ -7,6 +7,8 @@ import pickle
 import random
 import inspect
 import warnings
+from collections import defaultdict
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
@@ -152,37 +154,37 @@ def build_preference_examples(
     rng: random.Random,
 ) -> List[PreferenceExample]:
     records = list(records)
-    direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
+    # direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
 
-    if direct_pairs:
-        preference_examples: List[PreferenceExample] = []
-        for idx, rec in enumerate(direct_pairs):
-            context = str(rec.get("context", "")).strip()
-            chosen = str(rec.get("ori_resp", "")).strip()
-            rejected = str(rec.get("new_resp", "")).strip()
-            if not chosen or not rejected or chosen == rejected:
-                continue
-            prompt = context
-            if prompt:
-                prompt = prompt.rstrip()
-                if not prompt.endswith("\n"):
-                    prompt += "\n"
-                if not prompt.strip().endswith(f"{system_role}:"):
-                    prompt = f"{prompt}{system_role}: "
-            else:
-                prompt = f"{system_role}: "
-            preference_examples.append(
-                PreferenceExample(
-                    prompt=prompt,
-                    chosen=f" {chosen}",
-                    rejected=f" {rejected}",
-                    dialog_id=str(rec.get("did", idx)),
-                    turn_index=int(rec.get("turn_index", idx)),
-                )
-            )
-        if not preference_examples:
-            raise ValueError("No valid preference pairs with ori/new responses found in dataset.")
-        return preference_examples
+    # if direct_pairs:
+    #     preference_examples: List[PreferenceExample] = []
+    #     for idx, rec in enumerate(direct_pairs):
+    #         context = str(rec.get("context", "")).strip()
+    #         chosen = str(rec.get("ori_resp", "")).strip()
+    #         rejected = str(rec.get("new_resp", "")).strip()
+    #         if not chosen or not rejected or chosen == rejected:
+    #             continue
+    #         prompt = context
+    #         if prompt:
+    #             prompt = prompt.rstrip()
+    #             if not prompt.endswith("\n"):
+    #                 prompt += "\n"
+    #             if not prompt.strip().endswith(f"{system_role}:"):
+    #                 prompt = f"{prompt}{system_role}: "
+    #         else:
+    #             prompt = f"{system_role}: "
+    #         preference_examples.append(
+    #             PreferenceExample(
+    #                 prompt=prompt,
+    #                 chosen=f" {chosen}",
+    #                 rejected=f" {rejected}",
+    #                 dialog_id=str(rec.get("did", idx)),
+    #                 turn_index=int(rec.get("turn_index", idx)),
+    #             )
+    #         )
+    #     if not preference_examples:
+    #         raise ValueError("No valid preference pairs with ori/new responses found in dataset.")
+    #     return preference_examples
 
     conversation_examples = build_examples(
         records,
@@ -198,14 +200,55 @@ def build_preference_examples(
     if len(set(pool)) < 2:
         raise ValueError("Preference pool contains only one unique completion; cannot form rejected samples.")
 
+    by_dialog: Dict[str, List[ConversationExample]] = {}
+    for example in conversation_examples:
+        by_dialog.setdefault(example.dialog_id, []).append(example)
+
+    used_rejection_counts: Dict[str, int] = defaultdict(int)
+
+    def normalize_text(text: str) -> str:
+        return " ".join(text.split()).lower()
+
+    def pick_rejected(example: ConversationExample) -> str:
+        # Prefer negatives from the same dialogue to keep context mismatch realistic.
+        in_dialog_candidates = [
+            candidate.completion
+            for candidate in by_dialog.get(example.dialog_id, [])
+            if candidate.turn_index != example.turn_index
+        ]
+        cross_dialog_candidates = [
+            candidate.completion
+            for candidate in conversation_examples
+            if candidate.dialog_id != example.dialog_id
+        ]
+        candidate_sets = [in_dialog_candidates, cross_dialog_candidates]
+        chosen_norm = normalize_text(example.completion)
+        for candidates in candidate_sets:
+            if not candidates:
+                continue
+            unique_ordered = list(dict.fromkeys(candidates))
+            local_valid: List[Tuple[int, str, str]] = []
+            for rejected in unique_ordered:
+                rejected_norm = normalize_text(rejected)
+                if not rejected_norm or rejected_norm == chosen_norm:
+                    continue
+                similarity = SequenceMatcher(None, example.completion, rejected).ratio()
+                if similarity >= 0.95:
+                    continue
+                usage = used_rejection_counts[rejected_norm]
+                local_valid.append((usage, rejected, rejected_norm))
+            if local_valid:
+                min_usage = min(item[0] for item in local_valid)
+                reservoir = [item for item in local_valid if item[0] == min_usage]
+                _, selected_text, selected_norm = rng.choice(reservoir)
+                used_rejection_counts[selected_norm] += 1
+                return selected_text
+        return ""
+
     preference_examples: List[PreferenceExample] = []
     for example in conversation_examples:
-        rejected = example.completion
-        attempts = 0
-        while rejected == example.completion and attempts < 20:
-            rejected = rng.choice(pool)
-            attempts += 1
-        if rejected == example.completion:
+        rejected = pick_rejected(example)
+        if not rejected:
             continue
         preference_examples.append(
             PreferenceExample(
@@ -363,7 +406,7 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
-            evaluation_strategy="epoch" if eval_dataset is not None else "no",
+            eval_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
             save_total_limit=args.save_total_limit,
             report_to="none",
@@ -403,6 +446,11 @@ def main() -> None:
             user_role=args.user_role,
             rng=rng,
         )
+        if not pref_examples:
+            raise ValueError("No preference examples constructed from dataset.")
+        for ex in pref_examples[:3]:
+            print(f"Prompt: {ex.prompt}\nChosen: {ex.chosen}\nRejected: {ex.rejected}\n---")
+            
         rng.shuffle(pref_examples)
         if args.max_samples and args.max_samples > 0:
             pref_examples = pref_examples[: args.max_samples]
@@ -441,7 +489,7 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
-            evaluation_strategy=IntervalStrategy.EPOCH if eval_dataset is not None else IntervalStrategy.NO,
+            eval_strategy=IntervalStrategy.EPOCH if eval_dataset is not None else IntervalStrategy.NO,
             save_strategy=IntervalStrategy.EPOCH,
             save_total_limit=args.save_total_limit,
             report_to=[],
