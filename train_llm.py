@@ -141,7 +141,7 @@ def build_examples(
             )
     return examples
 
-
+# issue might be here
 def build_preference_examples(
     records: Iterable[Dict[str, Any]],
     *,
@@ -151,6 +151,39 @@ def build_preference_examples(
     user_role: str,
     rng: random.Random,
 ) -> List[PreferenceExample]:
+    records = list(records)
+    direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
+
+    if direct_pairs:
+        preference_examples: List[PreferenceExample] = []
+        for idx, rec in enumerate(direct_pairs):
+            context = str(rec.get("context", "")).strip()
+            chosen = str(rec.get("ori_resp", "")).strip()
+            rejected = str(rec.get("new_resp", "")).strip()
+            if not chosen or not rejected or chosen == rejected:
+                continue
+            prompt = context
+            if prompt:
+                prompt = prompt.rstrip()
+                if not prompt.endswith("\n"):
+                    prompt += "\n"
+                if not prompt.strip().endswith(f"{system_role}:"):
+                    prompt = f"{prompt}{system_role}: "
+            else:
+                prompt = f"{system_role}: "
+            preference_examples.append(
+                PreferenceExample(
+                    prompt=prompt,
+                    chosen=f" {chosen}",
+                    rejected=f" {rejected}",
+                    dialog_id=str(rec.get("did", idx)),
+                    turn_index=int(rec.get("turn_index", idx)),
+                )
+            )
+        if not preference_examples:
+            raise ValueError("No valid preference pairs with ori/new responses found in dataset.")
+        return preference_examples
+
     conversation_examples = build_examples(
         records,
         system_field=system_field,
@@ -246,7 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data (SFT or DPO).")
     parser.add_argument("--dataset-path", type=Path, default=Path("data/p4g/300_dialog_turn_based.pkl"), help="Path to dialogue dataset (.pkl, .json, .jsonl).")
     parser.add_argument("--model-name", type=str, default="gpt2", help="Hugging Face model identifier to fine-tune.")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/ft-model"), help="Where to save checkpoints.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Where to save checkpoints (defaults to outputs/<model>-<algorithm>).")
     parser.add_argument("--algorithm", type=str, choices=["sft", "dpo"], default="sft", help="Training objective.")
     parser.add_argument("--max-length", type=int, default=512, help="Maximum sequence length for training tokens.")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size.")
@@ -273,6 +306,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
+
+    if args.output_dir is None:
+        auto_dir = f"outputs/{args.model_name.replace('/', '_')}-{args.algorithm}"
+        args.output_dir = Path(auto_dir)
 
     records = load_raw_records(args.dataset_path)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
@@ -326,8 +363,8 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
+            evaluation_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
-            eval_strategy="epoch" if eval_dataset is not None else "no",
             save_total_limit=args.save_total_limit,
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
@@ -404,8 +441,8 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
+            evaluation_strategy=IntervalStrategy.EPOCH if eval_dataset is not None else IntervalStrategy.NO,
             save_strategy=IntervalStrategy.EPOCH,
-            eval_strategy=IntervalStrategy.EPOCH if eval_dataset is not None else IntervalStrategy.NO,
             save_total_limit=args.save_total_limit,
             report_to=[],
             fp16=args.fp16 and torch.cuda.is_available(),

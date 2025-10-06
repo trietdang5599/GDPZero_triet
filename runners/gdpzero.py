@@ -253,7 +253,7 @@ def main(cmd_args):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--output', type=str, default="outputs/gdpzero.pkl", help='output file')
+	parser.add_argument('--output', type=str, default="", help='output file (autofills if empty)')
 	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "chatgpt", "gpt-3.5-turbo", "gpt2", "qwen2.5-0.5b-instruct", "local"], help='Backbone model identifier')
 	parser.add_argument('--gen_sentences', type=int, default=-1, help='number of sentences to generate from the llm. Longer ones will be truncated by nltk.')
 	parser.add_argument('--num_mcts_sims', type=int, default=20, help='number of mcts simulations')
@@ -265,6 +265,15 @@ if __name__ == "__main__":
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
 	parser.parse_args()
 	cmd_args = parser.parse_args()
+
+	if not cmd_args.output:
+		llm_label = cmd_args.llm
+		model_label = Path(cmd_args.local_model_path).name if cmd_args.local_model_path else "base"
+		cmd_args.output = (
+			f"outputs/gdpzero-{cmd_args.num_mcts_sims}-"
+			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}.pkl"
+		)
+
 	print("saving to", cmd_args.output)
 
 	main(cmd_args)

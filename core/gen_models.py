@@ -4,6 +4,7 @@ import torch
 import os
 import multiprocessing as mp
 import nltk
+import re
 
 from pathlib import Path
 from openai import OpenAI, AzureOpenAI
@@ -473,7 +474,42 @@ class LocalModel(GenerationModel):
 			"num_return_sequences": 1,
 			"pad_token_id": self.tokenizer.pad_token_id,
 			"eos_token_id": self.stop_token_id,
+			"no_repeat_ngram_size": 3,
 		}
+
+	@staticmethod
+	def _deduplicate_text(text: str, max_sentence_repeats: int = 2) -> str:
+		sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+		deduped: List[str] = []
+		repeats: Dict[str, int] = {}
+		for sent in sentences:
+			normalized = sent.lower()
+			repeats.setdefault(normalized, 0)
+			if repeats[normalized] >= max_sentence_repeats:
+				continue
+			repeats[normalized] += 1
+			if deduped and normalized == deduped[-1].lower():
+				continue
+			deduped.append(sent)
+		if not deduped:
+			candidate = text
+		else:
+			candidate = " ".join(deduped)
+		return LocalModel._trim_repeated_phrases(candidate)
+
+	@staticmethod
+	def _trim_repeated_phrases(text: str, max_phrase: int = 8) -> str:
+		tokens = text.split()
+		limit = len(tokens)
+		for window in range(1, min(max_phrase, limit // 2) + 1):
+			i = 0
+			while i + 2 * window <= limit:
+				segment = tokens[i:i + window]
+				next_segment = tokens[i + window:i + 2 * window]
+				if segment == next_segment:
+					return " ".join(tokens[:i + window])
+				i += 1
+		return " ".join(tokens)
 
 	def _prepare_generation_args(self, gen_args: Dict) -> Dict:
 		gen_params = {**self.inference_args}
@@ -538,7 +574,8 @@ class LocalModel(GenerationModel):
 		gen_resps = self.tokenizer.batch_decode(gen_only_outputs, skip_special_tokens=True)
 		gen_output = []
 		for resp in gen_resps:
-			gen_output.append({"generated_text": resp})
+			cleaned = self._deduplicate_text(resp)
+			gen_output.append({"generated_text": cleaned})
 		return gen_output
 
 	def chat_generate(self, messages: List[Dict], **gen_args):

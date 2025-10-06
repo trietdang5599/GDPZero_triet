@@ -3,7 +3,7 @@ import numpy as np
 
 from typing import List, Tuple
 from core.helpers import DialogSession
-from core.gen_models import GenerationModel, DialogModel
+from core.gen_models import GenerationModel, DialogModel, LocalModel
 from core.game import PersuasionGame
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -437,6 +437,10 @@ class PersuaderModel(DialogModel):
 			"return_full_text": False,
 			**inference_args
 		}
+		if isinstance(backbone_model, LocalModel):
+			self.inference_args.setdefault("no_repeat_ngram_size", 3)
+			self.inference_args["repetition_penalty"] = max(1.1, self.inference_args.get("repetition_penalty", 1.0))
+			self.inference_args.setdefault("temperature", 0.7)
 		return
 
 	def process_exp(self):
@@ -511,6 +515,10 @@ class PersuaderChatModel(PersuaderModel):
 			"return_full_text": False,
 			**inference_args
 		}
+		if isinstance(backbone_model, LocalModel):
+			self.inference_args.setdefault("no_repeat_ngram_size", 3)
+			self.inference_args["repetition_penalty"] = max(1.1, self.inference_args.get("repetition_penalty", 1.0))
+			self.inference_args.setdefault("temperature", 0.7)
 		self.task_prompt = """
 		Save the Children is head-quartered in London, and they work to help fight poverty around the world. Children need help in developing countries and war zones. Small donations like $1 or $2 go a long way to help.
 		You are Persuader who is trying to persuade the Persuadee to donate to a charity called Save the Children.
