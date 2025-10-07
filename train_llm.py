@@ -398,8 +398,6 @@ def main() -> None:
         train_dataset = ConversationDataset(train_examples, tokenizer, effective_max_length)
         eval_dataset = ConversationDataset(val_examples, tokenizer, effective_max_length) if val_examples else None
 
-        bf16_ok = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 and not args.fp16
-
         training_args = TrainingArguments(
             output_dir=str(args.output_dir),
             per_device_train_batch_size=args.batch_size,
@@ -410,19 +408,32 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
-            dataloader_num_workers=2,
-            dataloader_drop_last=True,               # tránh batch lẻ gây treo
-            dataloader_pin_memory=False,             # debug ổn định hơn
-            evaluation_strategy="epoch" if eval_dataset is not None else "no",  # ✅ tên đúng
+            # dataloader_num_workers=2,
+            # eval_strategy="epoch" if eval_dataset is not None else "no",
+            # save_strategy="epoch",
+            # save_total_limit=args.save_total_limit,
+            # report_to="none",
+            # fp16=args.fp16 and torch.cuda.is_available(),
+            # 🔧 tránh treo do DataLoader
+            dataloader_num_workers=0,           # debug/stable nhất
+            dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
+            dataloader_pin_memory=False,        # giảm treo do pinned mem
+
+            # ✅ tên tham số đúng
+            evaluation_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
             save_total_limit=args.save_total_limit,
             report_to="none",
-            fp16=(args.fp16 and torch.cuda.is_available()),
-            bf16=bf16_ok,
+
+            # DDP flags
             ddp_backend="nccl",
-            ddp_find_unused_parameters=False,        # graph LLM liền mạch
+            ddp_find_unused_parameters=False,
+
+            # Precision (bật fp16 nếu cậu đã confirm OK)
+            fp16=(args.fp16 and torch.cuda.is_available()),
+            bf16=False,
         )
-        model = torch.nn.DataParallel(model, device_ids=[0,1])
+        
         trainer = Trainer(
             model=model,
             args=training_args,
