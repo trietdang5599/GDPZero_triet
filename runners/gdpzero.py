@@ -60,8 +60,8 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'qwen2.5-0.5b-instruct':
-		backbone_model = LocalModel('Qwen/Qwen2.5-0.5B-Instruct', trust_remote_code=True)
+	elif cmd_args.llm == 'qwen2.5-0.5b':
+		backbone_model = LocalModel('Qwen/Qwen2.5-0.5B', trust_remote_code=True)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
@@ -83,6 +83,7 @@ def main(cmd_args):
 		backbone_model, 
 		conv_examples=[exp_1],
 		inference_args={
+			"max_new_tokens": 80,
 			"temperature": 0.7,
 			"do_sample": True,  # for MCTS open loop
 			"return_full_text": False,
@@ -259,7 +260,7 @@ if __name__ == "__main__":
 	parser.add_argument('--num_mcts_sims', type=int, default=20, help='number of mcts simulations')
 	parser.add_argument('--max_realizations', type=int, default=3, help='number of realizations per mcts state')
 	parser.add_argument('--Q_0', type=float, default=0.0, help='initial Q value for unitialized states. to control exploration')
-	parser.add_argument('--num_dialogs', type=int, default=20, help='number of dialogs to test MCTS on')
+	parser.add_argument('--num_dialogs', type=int, default=100, help='number of dialogs to test MCTS on')
 	parser.add_argument('--debug', action='store_true', help='debug mode')
 	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model to load when using --llm gpt2 or --llm local.')
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
@@ -270,8 +271,8 @@ if __name__ == "__main__":
 		llm_label = cmd_args.llm
 		model_label = Path(cmd_args.local_model_path).name if cmd_args.local_model_path else "base"
 		cmd_args.output = (
-			f"outputs/gdpzero-{cmd_args.num_mcts_sims}-"
-			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}.pkl"
+			f"outputs/gdpzero-{cmd_args.num_mcts_sims}sims-"
+			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}Q-{cmd_args.num_dialogs}.pkl"
 		)
 
 	print("saving to", cmd_args.output)
