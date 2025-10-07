@@ -1,4 +1,5 @@
 import logging
+import re
 import numpy as np
 
 from typing import List, Tuple
@@ -538,9 +539,9 @@ class PersuaderChatModel(PersuaderModel):
 		return (
 			"Instruction for the Persuader response. "
 			f"Goal: {self.da_prompts_mapping[da]} "
-			"Output MUST be exactly one line in the form `Persuader: <utterance>`. "
-			"The utterance should sound natural, stay on topic, and use at most three sentences. "
-			"Do not add narration, extra speakers, greetings like `Human`, or any text before/after that line."
+			"Return exactly one line wrapped in <answer></answer>, where the content is `Persuader: <utterance>`. "
+			"The utterance must sound natural, stay on topic, use at most three sentences, and avoid greetings like `Human.` "
+			"Do not add narration, analysis, policy reminders, or any text outside the <answer> tag."
 		)
 
 	def process_chat_exp(self):
@@ -589,6 +590,31 @@ class PersuaderChatModel(PersuaderModel):
 	
 	def get_utterance(self, state:DialogSession, action:int) -> str:
 		return self.get_utterance_batched(state, action, batch=1)[0]
+
+	@staticmethod
+	def _sanitize_response(text: str) -> str:
+		match = re.search(r"<answer>(.*?)</answer>", text, flags=re.IGNORECASE | re.DOTALL)
+		sanitized = match.group(1) if match else text
+		sanitized = sanitized.strip()
+		if "\n" in sanitized:
+			sanitized = sanitized.splitlines()[0].strip()
+		# disclaimer_markers = [
+		# 	"you are an ai assistant",
+		# 	"user will you give you a task",
+		# 	"adhere to ethical guidelines",
+		# 	"complete the task as faithfully",
+		# ]
+		# lower_sanitized = sanitized.lower()
+		# for marker in disclaimer_markers:
+		# 	idx = lower_sanitized.find(marker)
+		# 	if idx != -1:
+		# 		sanitized = sanitized[:idx].strip()
+		# 		break
+		# if not sanitized:
+		# 	return "Persuader: "
+		# if not sanitized.lower().startswith("persuader:"):
+		# 	sanitized = f"Persuader: {sanitized}"
+		return sanitized
 	
 	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:
 		da = self.dialog_acts[action]
@@ -611,7 +637,8 @@ class PersuaderChatModel(PersuaderModel):
 		sys_resps = self.backbone_model._cleaned_chat_resp(
 			data, assistant_role=f"{PersuasionGame.SYS}:", user_role=f"{PersuasionGame.USR}:"
 		)
-		return sys_resps
+		return [self._sanitize_response(resp) for resp in sys_resps]
+		# return sys_resps
 
 	def get_utterance_w_da(self, state: DialogSession, action) -> Tuple[str, str]:
 		raise NotImplementedError
