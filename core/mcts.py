@@ -4,7 +4,7 @@ import math
 
 from core.helpers import DialogSession
 from core.game import DialogGame
-from core.players import DialogPlanner
+from core.P4GSystemPlanner import DialogPlanner
 
 
 logger = logging.getLogger(__name__)

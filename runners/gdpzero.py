@@ -15,10 +15,9 @@ from tqdm.auto import tqdm
 from core.gen_models import (
 	LocalModel, OpenAIModel, OpenAIChatModel, AzureOpenAIChatModel
 )
-from core.players import (
-	PersuadeeModel, PersuaderModel, P4GSystemPlanner,
-	PersuaderChatModel, PersuadeeChatModel, P4GChatSystemPlanner
-)
+from core.P4GSystemPlanner import P4GSystemPlanner, P4GChatSystemPlanner
+from core.PersuaderModel import PersuaderModel, PersuaderChatModel
+from core.PersuadeeModel import PersuadeeModel, PersuadeeChatModel
 from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.helpers import DialogSession
