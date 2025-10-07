@@ -613,7 +613,7 @@ class PersuaderChatModel(PersuaderModel):
 		if not sanitized:
 			return "Persuader: "
 		if not sanitized.lower().startswith("persuader:"):
-			sanitized = f"Persuader: {sanitized}"
+			sanitized = f"{sanitized}"
 		return sanitized
 	
 	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:
