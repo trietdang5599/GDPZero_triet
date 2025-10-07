@@ -406,6 +406,7 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
+            dataloader_num_workers=2,
             eval_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
             save_total_limit=args.save_total_limit,
