@@ -413,7 +413,7 @@ def main() -> None:
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
         )
-
+        model = torch.nn.DataParallel(model, device_ids=[0,1])
         trainer = Trainer(
             model=model,
             args=training_args,
