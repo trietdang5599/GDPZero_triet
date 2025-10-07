@@ -534,6 +534,15 @@ class PersuaderChatModel(PersuaderModel):
 		self.prompt_examples = self.process_chat_exp()
 		return
 
+	def _format_da_instruction(self, da: str) -> str:
+		return (
+			"Instruction for the Persuader response. "
+			f"Goal: {self.da_prompts_mapping[da]} "
+			"Output MUST be exactly one line in the form `Persuader: <utterance>`. "
+			"The utterance should sound natural, stay on topic, and use at most three sentences. "
+			"Do not add narration, extra speakers, greetings like `Human`, or any text before/after that line."
+		)
+
 	def process_chat_exp(self):
 		prompt_exps = []
 		for exp in self.conv_examples:
@@ -566,16 +575,15 @@ class PersuaderChatModel(PersuaderModel):
 					"content": f"{role}: {utt}".strip()
 				})
 			else:
-				if i+1 < len(exp.history):
-					next_sys_da = exp[i+1][1]
+				prompt_messages.append({
+					"role": "user",
+					"content": f"{role}: {utt}".strip()
+				})
+				if i + 1 < len(exp.history):
+					next_sys_da = exp[i + 1][1]
 					prompt_messages.append({
-						"role": "user",
-						"content": f"{role}: {utt}\n{self.da_prompts_mapping[next_sys_da]}".strip()
-					})
-				else:
-					prompt_messages.append({
-						"role": "user",
-						"content": f"{role}: {utt}".strip()
+						"role": "system",
+						"content": self._format_da_instruction(next_sys_da)
 					})
 		return prompt_messages
 	
@@ -584,17 +592,17 @@ class PersuaderChatModel(PersuaderModel):
 	
 	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:
 		da = self.dialog_acts[action]
-		da_prompt = self.da_prompts_mapping[da]
 		messages = [
 			{'role': 'system', 'content': self.task_prompt},
 			*self.prompt_examples,
 			{'role': 'system', 'content': self.new_task_prompt}
 		]
 		if len(state) == 0:
-			messages.append({'role': 'user', 'content': f'{PersuasionGame.USR}: Hello.\n{da_prompt}'})
+			messages.append({'role': 'user', 'content': f'{PersuasionGame.USR}: Hello.'})
 		else:
 			assert(state[-1][0] == PersuasionGame.USR)
 			messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+		messages.append({'role': 'system', 'content': self._format_da_instruction(da)})
 		gen_args = {
 			**self.inference_args,
 			"num_return_sequences": batch,  # this will be changed to n inside chat_generate
