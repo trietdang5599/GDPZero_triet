@@ -420,7 +420,7 @@ def main() -> None:
             dataloader_pin_memory=False,        # giảm treo do pinned mem
 
             # ✅ tên tham số đúng
-            evaluation_strategy="epoch" if eval_dataset is not None else "no",
+            eval_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
             save_total_limit=args.save_total_limit,
             report_to="none",
