@@ -539,7 +539,7 @@ class PersuaderChatModel(PersuaderModel):
 		return (
 			"Instruction for the Persuader response. "
 			f"Goal: {self.da_prompts_mapping[da]} "
-			"Return exactly one line wrapped in <answer></answer>, where the content is `Persuader: <utterance>`. "
+			"Return exactly one line wrapped in <answer></answer> "
 			"The utterance must sound natural, stay on topic, use at most three sentences, and avoid greetings like `Human.` "
 			"Do not add narration, analysis, policy reminders, or any text outside the <answer> tag."
 		)
