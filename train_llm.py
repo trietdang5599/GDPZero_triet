@@ -408,30 +408,30 @@ def main() -> None:
             weight_decay=args.weight_decay,
             warmup_ratio=args.warmup_ratio,
             logging_steps=args.logging_steps,
-            # dataloader_num_workers=2,
-            # eval_strategy="epoch" if eval_dataset is not None else "no",
-            # save_strategy="epoch",
-            # save_total_limit=args.save_total_limit,
-            # report_to="none",
-            # fp16=args.fp16 and torch.cuda.is_available(),
-            # 🔧 tránh treo do DataLoader
-            dataloader_num_workers=0,           # debug/stable nhất
-            dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
-            dataloader_pin_memory=False,        # giảm treo do pinned mem
-
-            # ✅ tên tham số đúng
+            dataloader_num_workers=2,
             eval_strategy="epoch" if eval_dataset is not None else "no",
             save_strategy="epoch",
             save_total_limit=args.save_total_limit,
             report_to="none",
+            fp16=args.fp16 and torch.cuda.is_available(),
+            # 🔧 tránh treo do DataLoader
+            # dataloader_num_workers=0,           # debug/stable nhất
+            # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
+            # dataloader_pin_memory=False,        # giảm treo do pinned mem
 
-            # DDP flags
-            ddp_backend="nccl",
-            ddp_find_unused_parameters=False,
+            # # ✅ tên tham số đúng
+            # eval_strategy="epoch" if eval_dataset is not None else "no",
+            # save_strategy="epoch",
+            # save_total_limit=args.save_total_limit,
+            # report_to="none",
 
-            # Precision (bật fp16 nếu cậu đã confirm OK)
-            fp16=(args.fp16 and torch.cuda.is_available()),
-            bf16=False,
+            # # DDP flags
+            # ddp_backend="nccl",
+            # ddp_find_unused_parameters=False,
+
+            # # Precision (bật fp16 nếu cậu đã confirm OK)
+            # fp16=(args.fp16 and torch.cuda.is_available()),
+            # bf16=False,
         )
         
         trainer = Trainer(
