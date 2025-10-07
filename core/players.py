@@ -598,22 +598,22 @@ class PersuaderChatModel(PersuaderModel):
 		sanitized = sanitized.strip()
 		if "\n" in sanitized:
 			sanitized = sanitized.splitlines()[0].strip()
-		# disclaimer_markers = [
-		# 	"you are an ai assistant",
-		# 	"user will you give you a task",
-		# 	"adhere to ethical guidelines",
-		# 	"complete the task as faithfully",
-		# ]
-		# lower_sanitized = sanitized.lower()
-		# for marker in disclaimer_markers:
-		# 	idx = lower_sanitized.find(marker)
-		# 	if idx != -1:
-		# 		sanitized = sanitized[:idx].strip()
-		# 		break
-		# if not sanitized:
-		# 	return "Persuader: "
-		# if not sanitized.lower().startswith("persuader:"):
-		# 	sanitized = f"Persuader: {sanitized}"
+		disclaimer_markers = [
+			"you are an ai assistant",
+			"user will you give you a task",
+			"adhere to ethical guidelines",
+			"complete the task as faithfully",
+		]
+		lower_sanitized = sanitized.lower()
+		for marker in disclaimer_markers:
+			idx = lower_sanitized.find(marker)
+			if idx != -1:
+				sanitized = sanitized[:idx].strip()
+				break
+		if not sanitized:
+			return "Persuader: "
+		if not sanitized.lower().startswith("persuader:"):
+			sanitized = f"Persuader: {sanitized}"
 		return sanitized
 	
 	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:
