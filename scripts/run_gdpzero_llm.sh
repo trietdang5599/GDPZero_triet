@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LLM=${llamda-3-8b:-qwen2.5-7b}
+LLM="${llamda-3-8b:-qwen2.5-7b}"
 
 PYTHON_BIN="${PYTHON:-python}"
 SIM_COUNTS=(10 20)
