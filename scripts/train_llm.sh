@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PYTHON_BIN="${PYTHON:-python}"
 ACCELERATE_BIN="${ACCELERATE_BIN:-accelerate}"
 
-MODEL_NAME="Qwen/Qwen2.5-7B-Instruct"
+MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
 PREF_PATH="${REPO_ROOT}/data/p4g/preferences.jsonl"
 SFT_OUTPUT="${REPO_ROOT}/outputs/qwen25-sft"
@@ -20,7 +20,7 @@ MASTER_PORT="${MASTER_PORT:-29500}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:512}"
 # env NCCL an toàn single-node
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0
 
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-lo}"
@@ -29,7 +29,7 @@ unset NCCL_BLOCKING_WAIT
 export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-echo "=== GDPZero Qwen2.5-7B Training Pipeline (accelerate) ==="
+echo "=== GDPZero Training Pipeline (accelerate) ==="
 echo "Python executable : ${PYTHON_BIN}"
 echo "Accelerate bin    : ${ACCELERATE_BIN}"
 echo "Model name        : ${MODEL_NAME}"
@@ -69,13 +69,13 @@ run_training () {
   fi
 }
 
-echo "[2/3] Running supervised fine-tuning (QLoRA)..."
+echo "[2/3] Running supervised fine-tuning ..."
 run_training \
   --algorithm sft \
   --dataset-path "${DATASET_PATH}" \
   --model-name "${MODEL_NAME}" \
   --output-dir "${SFT_OUTPUT}" \
-  --batch-size 1 \
+  --batch-size 4 \
   --gradient-accumulation 16 \
   --num-train-epochs 2 \
   --learning-rate 2e-5 \
@@ -89,7 +89,7 @@ run_training \
   --model-name "${MODEL_NAME}" \
   --reference-model-name "${SFT_OUTPUT}" \
   --output-dir "${DPO_OUTPUT}" \
-  --batch-size 1 \
+  --batch-size 4 \
   --gradient-accumulation 16 \
   --num-train-epochs 2 \
   --learning-rate 1e-5 \
