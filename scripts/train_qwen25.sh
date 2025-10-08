@@ -17,7 +17,7 @@ NUM_GPUS="${NUM_GPUS:-1}"
 MASTER_PORT="${MASTER_PORT:-29500}"
 
 # tránh phân mảnh VRAM cho model lớn
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:true}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 # env NCCL an toàn single-node
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
@@ -51,11 +51,15 @@ fi
 run_training () {
   if (( NUM_GPUS > 1 )); then
     # dùng accelerate launch để spawn DDP đúng chuẩn
-    "${ACCELERATE_BIN}" launch \
-      --multi_gpu \
-      --num_processes "${NUM_GPUS}" \
-      --main_process_port "${MASTER_PORT}" \
-      "${REPO_ROOT}/train_llm.py" "$@"
+	"${ACCELERATE_BIN}" launch \
+	--multi_gpu \
+	--num_processes "${NUM_GPUS}" \
+	--num_machines 1 \
+	--mixed_precision no \
+	--dynamo_backend no \
+	--main_process_port "${MASTER_PORT}" \
+	"${REPO_ROOT}/train_llm.py" "$@"
+
   else
     "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
   fi
