@@ -36,8 +36,8 @@ def main(cmd_args):
 	system_name = PersuasionGame.SYS
 	user_name = PersuasionGame.USR
 	
-	print("System dialog acts: ", sys_da)
-	print("User dialog acts: ", user_da)
+	logger.info("System dialog acts: %s", sys_da)
+	logger.info("User dialog acts: %s", user_da)
 	
 
 	exp_1 = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
@@ -110,8 +110,8 @@ def main(cmd_args):
 	)
 	game = PersuasionGame(system, user)
 
-	print(f"System dialog acts: {system.dialog_acts}")
-	print(f"User dialog acts: {user.dialog_acts}")
+	logger.debug("System dialog acts (model): %s", system.dialog_acts)
+	logger.debug("User dialog acts (model): %s", user.dialog_acts)
 
 	with open("data/p4g/300_dialog_turn_based.pkl", "rb") as f:
 		all_dialogs = pickle.load(f)
@@ -131,12 +131,12 @@ def main(cmd_args):
 	pbar = tqdm(total=num_dialogs, desc="evaluating")
 	for did in all_dialogs.keys():
 		if did in bad_dialogs:
-			print("skipping dialog id: ", did)
+			logger.debug("Skipping dialog id: %s", did)
 			continue
 		if num_done == num_dialogs:
 			break
 
-		print("evaluating dialog id: ", did)
+		logger.info("Evaluating dialog id: %s", did)
 		context = ""
 		dialog = all_dialogs[did]
 		
@@ -191,7 +191,7 @@ def main(cmd_args):
 			if isinstance(backbone_model, OpenAIModel):
 				backbone_model._cached_generate.cache_clear()
 			dialog_planner = OpenLoopMCTS(game, planner, args)
-			print("searching")
+			logger.debug("Searching action for turn %s", t)
 			for i in tqdm(range(args.num_MCTS_sims)):
 				dialog_planner.search(state)
 
@@ -239,11 +239,11 @@ def main(cmd_args):
 			output.append(cmp_data)
 
 			if cmd_args.debug:
-				print(context)
-				print("human resp: ", human_resp)
-				print("human da: ", next_sys_da)
-				print("mcts resp: ", mcts_pred_rep)
-				print("mcts da: ", mcts_policy_next_da)
+				print("Context:\n%s", context)
+				print("human resp: %s", human_resp)
+				print("human da: %s", next_sys_da)
+				print("mcts resp: %s", mcts_pred_rep)
+				print("mcts da: %s", mcts_policy_next_da)
 		with open(cmd_args.output, "wb") as f:
 			pickle.dump(output, f)
 		num_done += 1
@@ -261,6 +261,7 @@ if __name__ == "__main__":
 	parser.add_argument('--Q_0', type=float, default=0.0, help='initial Q value for unitialized states. to control exploration')
 	parser.add_argument('--num_dialogs', type=int, default=100, help='number of dialogs to test MCTS on')
 	parser.add_argument('--debug', action='store_true', help='debug mode')
+	parser.add_argument('--log-level', type=str, default='INFO', choices=['CRITICAL','ERROR','WARNING','INFO','DEBUG','NOTSET'], help='Logging level for terminal output.')
 	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model to load when using --llm gpt2 or --llm local.')
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
 	cmd_args = parser.parse_args()
@@ -268,14 +269,16 @@ if __name__ == "__main__":
 	log_dir = Path("logs")
 	log_dir.mkdir(parents=True, exist_ok=True)
 	log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+	file_handler = logging.FileHandler(log_path, encoding="utf-8")
+	stream_handler = logging.StreamHandler()
+	stream_handler.setLevel(getattr(logging, cmd_args.log_level.upper(), logging.INFO))
 	logging.basicConfig(
 		level=logging.DEBUG,
 		format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-		handlers=[
-			logging.StreamHandler(),
-			logging.FileHandler(log_path, encoding="utf-8"),
-		],
+		handlers=[stream_handler, file_handler],
 	)
+	if cmd_args.debug:
+		stream_handler.setLevel(logging.DEBUG)
 	logger.info("Writing logs to %s", log_path)
 
 	if not cmd_args.output:
@@ -286,9 +289,5 @@ if __name__ == "__main__":
 			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}Q-{cmd_args.num_dialogs}.pkl"
 		)
 
-	print("saving to", cmd_args.output)
-	logging.basicConfig(
-		level=logging.DEBUG,
-		format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-	)
+	logger.info("Saving to %s", cmd_args.output)
 	main(cmd_args)

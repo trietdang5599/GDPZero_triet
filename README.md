@@ -77,6 +77,8 @@ optional arguments:
   --num_dialogs NUM_DIALOGS
                         number of dialogs to test MCTS on
   --debug               debug mode
+  --log-level {CRITICAL,ERROR,WARNING,INFO,DEBUG,NOTSET}
+                        logging level for terminal output
 ```
 for example, using `gpt-3.5-turbo` as backbone with `n=10` simulations, `k=3` realizations per state, and `Q_0=0.25` for exploration, do:
 ```bash
