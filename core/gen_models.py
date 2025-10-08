@@ -10,7 +10,7 @@ from pathlib import Path
 from openai import OpenAI, AzureOpenAI
 
 from abc import ABC, abstractmethod
-from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaForCausalLM, set_seed
+from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 from typing import List, Tuple, Dict, Optional
 from core.helpers import DialogSession
 from functools import lru_cache
@@ -453,20 +453,11 @@ class LocalModel(GenerationModel):
 		)
 		if self.tokenizer.pad_token is None:
 			self.tokenizer.pad_token = self.tokenizer.eos_token
-		if model_name.startswith("meta-llama") or model_name.startswith("Meta-Llama"):
-			# load_kwargs["load_in_8bit"] = self.cuda
-			self.model = LlamaForCausalLM.from_pretrained(
-				model_name,
-				trust_remote_code=trust_remote_code,
-				local_files_only=True,
-				**load_kwargs,	
-			)
-		else:
-			self.model = AutoModelForCausalLM.from_pretrained(
-				model_name,
-				trust_remote_code=trust_remote_code,
-				**load_kwargs,
-			)
+		self.model = AutoModelForCausalLM.from_pretrained(
+			model_name,
+			trust_remote_code=trust_remote_code,
+			**load_kwargs,
+		)
 		self.model.to(self.device)
 		self.model.eval()
 		self.model.config.pad_token_id = self.tokenizer.pad_token_id
