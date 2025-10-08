@@ -20,7 +20,6 @@ for sims in "${SIM_COUNTS[@]}"; do
 		--num_mcts_sims "${sims}" \
 		--max_realizations 3 \
 		--Q_0 0.25 \
-		--debug \
 		--log-level WARNING \
 		"$@"
 done
