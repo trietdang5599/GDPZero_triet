@@ -19,7 +19,7 @@ def main(args):
 	# backbone_model = OpenAIModel('text-davinci-003')
 	if args.judge in ['gpt-3.5-turbo', 'gpt-5-nano', 'gpt-4o-mini']:
 		backbone_model = OpenAIChatModel(args.judge)
-	elif args.judge in ['gpt2', 'qwen2.5-7b']:
+	elif args.judge in ['gpt2', 'Qwen/Qwen2.5-7B-Instruct']:
 		backbone_model = LocalModel(args.judge)
 	elif args.judge == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(args.judge)
@@ -82,7 +82,7 @@ def main(args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-f', type=str, help='path to the data file for comparing against human in p4g. See P4GEvaluator documentation to see the format of the file.')
-	parser.add_argument('--judge', type=str, default='gpt-3.5-turbo', help='which judge to use.', choices=['gpt-3.5-turbo', 'gpt-5-nano', 'gpt-4o-mini', 'chatgpt', 'gpt2', 'qwen2.5-7b'])
+	parser.add_argument('--judge', type=str, default='gpt-3.5-turbo', help='which judge to use.', choices=['gpt-3.5-turbo', 'gpt-5-nano', 'gpt-4o-mini', 'chatgpt', 'gpt2', 'Qwen/Qwen2.5-7B-Instruct'])
 	parser.add_argument('--h2h', type=str, default='', help='path to the data file for head to head comparison. If empty compare against human in p4g.')
 	parser.add_argument("--output", type=str, default='', help="output file")
 	parser.add_argument("--debug", action='store_true', help="debug mode")
