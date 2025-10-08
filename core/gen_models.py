@@ -457,7 +457,7 @@ class LocalModel(GenerationModel):
 			model_name,
 			trust_remote_code=trust_remote_code,
        		torch_dtype=torch.bfloat16,
-    		device_map="auto",
+    		device_map=None,
 			**load_kwargs,
 
 		)
