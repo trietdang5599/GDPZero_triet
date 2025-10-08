@@ -1,12 +1,12 @@
 import logging
 import numpy as np
 
-from abc import ABC, abstractmethod
 from typing import List, Tuple
-
 from core.helpers import DialogSession
-from core.gen_models import GenerationModel
+from core.gen_models import GenerationModel, DialogModel
 from core.game import PersuasionGame
+from abc import ABC, abstractmethod
+from collections import Counter
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class P4GSystemPlanner(DialogPlanner):
 		Save the Children is head-quartered in London, and they work to help fight poverty around the world. Children need help in developing countries and war zones. Small donations like $1 or $2 go a long way to help.
 		The Persuader can choose amongst the following actions during a conversation:
 		{" ".join([f"[{da}]" for da in dialog_acts])}
-		The following is an example conversation between a Persuader and a Persuadee about Save the Children. The Persuader is trying to persuade the Persuadee to donate to Save the Children.
+		The following is an example conversation between a Persuader and a Persuadee about a charity called Save the Children. The Persuader is trying to persuade the Persuadee to donate to Save the Children.
 		{self.process_exp()}
 		The following is a new conversation between another Persuader and Persuadee.
 		"""
@@ -301,14 +301,9 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 				pred_da.append(found_da)
 		return pred_da
 
-	# Nếu k predict được action có trong user_dialog_acts thì sẽ bị lỗi
 	def predict(self, state:DialogSession) -> "Tuple[np.ndarray, float]":
 		# test k times and compute prob. See num_return_sequences in the API
 		# the value would be our objective function
-		"""
-		Nếu sampled_das không có action nào trong dialog_acts thì prob sẽ update đồng đều các action
-		Chính vì vậy action khác không được chọn vì xác suất không thay đổi ở các turn
-		"""
 		messages = [
 			{'role': 'system', 'content': self.task_prompt},
 			*self.prompt_examples,
@@ -321,10 +316,9 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 			messages += self.__proccess_chat_exp(state, keep_sys_da=True, keep_user_da=False)
 		# produce a response
 		data = self.generation_model.chat_generate(messages, **self.inf_args)
-		# print(f"data :{data}")
+
 		sampled_das = self._get_generated_da(data)
 		logger.debug(f"sampled das: {sampled_das}")
-		# print(f"sampled das: {sampled_das}")
 		# convert to prob distribution
 		prob = np.zeros(len(self.dialog_acts))
 		prob += self.smoothing
@@ -396,9 +390,8 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 			elif da == PersuasionGame.U_Donate:
 				score.append(1.0)
 		v = 0.0 if len(score) == 0 else np.mean(score)
-		logger.info(f"sampled das to v: {v}")
+		logger.debug(f"sampled das to v: {v}")
 		return float(v)
-
 
 __all__ = [
 	"DialogPlanner",
