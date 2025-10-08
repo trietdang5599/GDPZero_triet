@@ -10,7 +10,6 @@ from core.game import PersuasionGame
 
 logger = logging.getLogger(__name__)
 
-
 class PersuadeeModel(DialogModel):
 	def __init__(self,
 			dialog_acts: List[str],
@@ -292,7 +291,6 @@ class PersuadeeChatModel(PersuadeeModel):
 		counted_das = Counter(sampled_das)
 		user_da = counted_das.most_common(1)[0][0]
 		return user_da
-
 
 __all__ = [
 	"PersuadeeModel",
