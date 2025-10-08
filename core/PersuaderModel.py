@@ -156,8 +156,9 @@ class PersuaderChatModel(PersuaderModel):
 		return (
 			"Instruction for the Persuader response. "
 			f"Goal: {self.da_prompts_mapping[da]} "
-			"Return exactly one line wrapped in <answer></answer>, where the content is `Persuader: <utterance>`. "
-			"Inside <answer> do not include any additional XML tags, brackets, or role labels besides `Persuader:`. "
+			"Return exactly one line wrapped in <answer></answer>, formatted as `["
+			f"{da}]: <utterance>`. "
+			"Inside <answer> do not include any additional XML tags or extra speaker labels beyond the prefixed `Persuader:`. "
 			"The utterance must sound natural, stay on topic, use at most three sentences, and avoid greetings like `Human.` "
 			"Do not add narration, analysis, policy reminders, or any text outside the <answer> tag."
 		)
@@ -225,6 +226,8 @@ class PersuaderChatModel(PersuaderModel):
 		]
 		for pattern in disclaimer_patterns:
 			sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE).rstrip()
+		# drop any leading dialog-act annotation, e.g. [personal story]
+		sanitized = re.sub(r"^\s*\[[^\]]+\]\s*", "", sanitized)
 		if "\n" in sanitized:
 			sanitized = sanitized.splitlines()[0].strip()
 		disclaimer_markers = [
