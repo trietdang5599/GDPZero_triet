@@ -275,6 +275,7 @@ The commands below show a minimal pipeline to derive a preference dataset, train
 	You can also pass `--h2h <other.pkl>` to perform head-to-head comparisons.
 
 	A convenience wrapper is provided in `scripts/run_gdpzero_qwen.sh`; pass the checkpoint path as the first argument (defaults to `outputs/qwen25-dpo`).
+	If you prefer an automated training workflow, see `scripts/train_qwen25.sh` which runs preference extraction, SFT, and DPO sequentially for Qwen2.5-7B-Instruct.
 
 ## Examples
 
