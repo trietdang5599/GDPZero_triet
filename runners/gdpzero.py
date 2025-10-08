@@ -59,7 +59,7 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == ['qwen2.5-7b', 'llamda-3-8b']:
+	elif cmd_args.llm in ['qwen2.5-7b', 'llamda-3-8b']:
 		if cmd_args.llm == 'qwen2.5-7b':
 			model_source = 'Qwen/Qwen2.5-7B-Instruct'
 		elif cmd_args.llm == 'llamda-3-8b':
@@ -80,6 +80,8 @@ def main(cmd_args):
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner
+	else:
+		raise ValueError(f"Unsupported llm: {cmd_args.llm}")
 	
 	system = SysModel(
 		sys_da,
