@@ -5,10 +5,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(0, str(PROJECT_ROOT))
 
-import numpy as np
 import logging
 import pickle
 import argparse
+from datetime import datetime
 import numpy as np
 
 from tqdm.auto import tqdm
@@ -263,8 +263,20 @@ if __name__ == "__main__":
 	parser.add_argument('--debug', action='store_true', help='debug mode')
 	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model to load when using --llm gpt2 or --llm local.')
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
-	parser.parse_args()
 	cmd_args = parser.parse_args()
+
+	log_dir = Path("logs")
+	log_dir.mkdir(parents=True, exist_ok=True)
+	log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+	logging.basicConfig(
+		level=logging.DEBUG,
+		format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+		handlers=[
+			logging.StreamHandler(),
+			logging.FileHandler(log_path, encoding="utf-8"),
+		],
+	)
+	logger.info("Writing logs to %s", log_path)
 
 	if not cmd_args.output:
 		llm_label = cmd_args.llm
@@ -275,5 +287,8 @@ if __name__ == "__main__":
 		)
 
 	print("saving to", cmd_args.output)
-
+	logging.basicConfig(
+		level=logging.DEBUG,
+		format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+	)
 	main(cmd_args)

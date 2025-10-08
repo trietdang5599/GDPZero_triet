@@ -529,7 +529,8 @@ class LocalModel(GenerationModel):
 	def _messages_to_prompt(self, messages: List[Dict]) -> str:
 		if not messages:
 			return ""
-		if hasattr(self.tokenizer, "apply_chat_template"):
+		chat_template = getattr(self.tokenizer, "chat_template", None)
+		if hasattr(self.tokenizer, "apply_chat_template") and chat_template:
 			try:
 				return self.tokenizer.apply_chat_template(
 					messages,

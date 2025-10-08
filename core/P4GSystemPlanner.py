@@ -305,6 +305,10 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 	def predict(self, state:DialogSession) -> "Tuple[np.ndarray, float]":
 		# test k times and compute prob. See num_return_sequences in the API
 		# the value would be our objective function
+		"""
+		Nếu sampled_das không có action nào trong dialog_acts thì prob sẽ update đồng đều các action
+		Chính vì vậy action khác không được chọn vì xác suất không thay đổi ở các turn
+		"""
 		messages = [
 			{'role': 'system', 'content': self.task_prompt},
 			*self.prompt_examples,
@@ -319,8 +323,8 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 		data = self.generation_model.chat_generate(messages, **self.inf_args)
 		# print(f"data :{data}")
 		sampled_das = self._get_generated_da(data)
-		# logger.debug(f"sampled das: {sampled_das}")
-		print(f"sampled das: {sampled_das}")
+		logger.debug(f"sampled das: {sampled_das}")
+		# print(f"sampled das: {sampled_das}")
 		# convert to prob distribution
 		prob = np.zeros(len(self.dialog_acts))
 		prob += self.smoothing
