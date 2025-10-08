@@ -33,6 +33,10 @@ except ImportError:  # pragma: no cover - optional dependency
 
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
+print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
+print("CUDA_VISIBLE_DEVICES=", os.getenv("CUDA_VISIBLE_DEVICES"))
+print("cuda_count=", torch.cuda.device_count())
+
 
 @dataclass
 class ConversationExample:
