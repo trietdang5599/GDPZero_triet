@@ -24,11 +24,11 @@ class PersuaderModel(DialogModel):
 		self.max_hist_num_turns = max_hist_num_turns
 		# prompts and DAs
 		self.da_prompts_mapping = {
-			PersuasionGame.S_PersonalStory:				"The Persuader shares a personal story related to Save the Children to build rapport.",
 			PersuasionGame.S_Greeting:	 				"The Persuader greets the Persuadee.",
 			# start of persuasion strategies
 			PersuasionGame.S_CredibilityAppeal:	 		"The Persuader establishes credibility of Save the Children by citing its impact.",
 			PersuasionGame.S_EmotionAppeal:	 			"The Persuader uses an emotion appeal to convince the Persuadee.",
+   			PersuasionGame.S_PersonalStory:				"The Persuader shares a personal story related to Save the Children to build rapport.",
 			PersuasionGame.S_LogicalAppeal:	 			"The Persuader use of reasoning and evidence to convince the Persuadee.",
 			PersuasionGame.S_FootInTheDoor:			"The Persuader makes a small request first to increase the chance of a later donation.",
 			PersuasionGame.S_SelfModeling:			"The Persuader describes their own generous behaviour to encourage imitation.",
@@ -38,6 +38,7 @@ class PersuaderModel(DialogModel):
 			PersuasionGame.S_NeutralToInquiry:		"The Persuader asks neutral follow-up questions without pushing for donation yet.",
 			PersuasionGame.S_PropositionOfDonation:	 	"The Persuader asks if the Persuadee would like to make a small donation.",
 			# end of persuasion strategies
+   
 			PersuasionGame.S_Other:	 					"The Persuader responds to the Persuadee without using any persuaive strategy.",
 		}
 		# only allow da that has the mapping
@@ -156,6 +157,7 @@ class PersuaderChatModel(PersuaderModel):
 			"Instruction for the Persuader response. "
 			f"Goal: {self.da_prompts_mapping[da]} "
 			"Return exactly one line wrapped in <answer></answer>, where the content is `Persuader: <utterance>`. "
+			"Inside <answer> do not include any additional XML tags, brackets, or role labels besides `Persuader:`. "
 			"The utterance must sound natural, stay on topic, use at most three sentences, and avoid greetings like `Human.` "
 			"Do not add narration, analysis, policy reminders, or any text outside the <answer> tag."
 		)
@@ -212,6 +214,8 @@ class PersuaderChatModel(PersuaderModel):
 		match = re.search(r"<answer>(.*?)</answer>", text, flags=re.IGNORECASE | re.DOTALL)
 		sanitized = match.group(1) if match else text
 		sanitized = sanitized.strip()
+		# strip any residual XML-like tags the model might emit (e.g. <Persuader>)
+		sanitized = re.sub(r"</?[^>\s]+>", "", sanitized)
 		if "\n" in sanitized:
 			sanitized = sanitized.splitlines()[0].strip()
 		disclaimer_markers = [
@@ -263,4 +267,3 @@ __all__ = [
 	"PersuaderModel",
 	"PersuaderChatModel",
 ]
-
