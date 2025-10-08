@@ -65,7 +65,7 @@ def main(cmd_args):
 		elif cmd_args.llm == 'llamda-3-8b':
 			model_source = 'meta-llama/Meta-Llama-3-8B-Instruct'
 		elif cmd_args.llm == 'deepseek-r1':
-			model_source = 'deepseek-ai/DeepSeek-R1'
+			model_source = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
 		backbone_model = LocalModel(model_source, trust_remote_code=True)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
