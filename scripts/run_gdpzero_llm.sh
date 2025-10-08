@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LLM="${LLM:-qwen2.5-7b}"
+LOG-LEVEL="${LOG_LEVEL:-INFO}"
 
 PYTHON_BIN="${PYTHON:-python}"
 SIM_COUNTS=(10 20)
@@ -13,6 +14,7 @@ OUTPUT_PREFIX="outputs/gdpzero"
 echo "Running GDPZero for simulation counts: ${SIM_COUNTS[*]}"
 echo "Using python executable: ${PYTHON_BIN}"
 echo "Using LLM: ${LLM}"
+echo "Log level: ${LOG_LEVEL}"
 
 for sims in "${SIM_COUNTS[@]}"; do
 	output_file="${OUTPUT_PREFIX}_${sims}.pkl"
@@ -23,7 +25,7 @@ for sims in "${SIM_COUNTS[@]}"; do
 		--max_realizations 3 \
 		--num_dialogs 30 \
 		--Q_0 0.25 \
-		--log-level DEBUG \
+		--log-level "${LOG-LEVEL}" \
 		"$@"
 done
 
