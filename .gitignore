@@ -5,3 +5,5 @@ __pycache__
 .venv
 .env
 outputs/gpt2*
+outputs/results/
+final_result
