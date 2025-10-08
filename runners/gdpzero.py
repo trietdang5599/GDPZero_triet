@@ -63,7 +63,7 @@ def main(cmd_args):
 		if cmd_args.llm == 'qwen2.5-7b':
 			model_source = 'Qwen/Qwen2.5-7B-Instruct'
 		elif cmd_args.llm == 'llamda-3-8b':
-			model_source = 'QuantFactory/Meta-Llama-3-8B-Instruct-GGUF'
+			model_source = 'meta-llama/Meta-Llama-3-8B-Instruct'
 		elif cmd_args.llm == 'deepseek-r1':
 			model_source = 'deepseek-ai/DeepSeek-R1'
 		backbone_model = LocalModel(model_source, trust_remote_code=True)

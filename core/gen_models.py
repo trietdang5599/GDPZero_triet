@@ -456,7 +456,10 @@ class LocalModel(GenerationModel):
 		self.model = AutoModelForCausalLM.from_pretrained(
 			model_name,
 			trust_remote_code=trust_remote_code,
+       		torch_dtype=torch.bfloat16,
+    		device_map="auto",
 			**load_kwargs,
+
 		)
 		self.model.to(self.device)
 		self.model.eval()
