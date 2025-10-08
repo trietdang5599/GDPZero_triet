@@ -218,6 +218,64 @@ Use the snippet below to peek into any output pickle (replace the placeholder pa
 ~/GDPZero$ python -c "import pickle, pprint; path='outputs/gdpzero.pkl'; data=pickle.load(open(path, 'rb')); print(f'Loaded {len(data)} entries from {path}'); pprint.pp(data[0])"
 ```
 
+### End-to-end RLHF Workflow (Example: Qwen2.5-7B)
+The commands below show a minimal pipeline to derive a preference dataset, train a Qwen checkpoint, and evaluate it with GDPZero.
+
+1. **Build preference pairs from the P4G pickle**  
+	```bash
+	~/GDPZero$ python hf_train.py build-preference-dataset \
+	  --dialog-path data/p4g/300_dialog_turn_based.pkl \
+	  --output data/p4g/preferences.jsonl \
+	  --num-negatives 1
+	```
+2. **Supervised fine-tune Qwen2.5-7B (QLoRA)**  
+	```bash
+	~/GDPZero$ python train_llm.py \
+	  --algorithm sft \
+	  --dataset-path data/p4g/300_dialog_turn_based.pkl \
+	  --model-name Qwen/Qwen2.5-7B-Instruct \
+	  --output-dir outputs/qwen25-sft \
+	  --batch-size 1 \
+	  --gradient-accumulation 16 \
+	  --num-train-epochs 2 \
+	  --learning-rate 2e-5 \
+	  --max-length 512
+	```
+3. **DPO preference optimization (using the SFT model as reference)**  
+	```bash
+	~/GDPZero$ python train_llm.py \
+	  --algorithm dpo \
+	  --dataset-path data/p4g/preferences.jsonl \
+	  --model-name Qwen/Qwen2.5-7B-Instruct \
+	  --reference-model-name outputs/qwen25-sft \
+	  --output-dir outputs/qwen25-dpo \
+	  --batch-size 1 \
+	  --gradient-accumulation 16 \
+	  --num-train-epochs 2 \
+	  --beta 0.1 \
+	  --learning-rate 1e-5 \
+	  --max-length 512
+	```
+4. **Run GDPZero with the DPO-tuned checkpoint**  
+	```bash
+	~/GDPZero$ python runners/gdpzero.py \
+	  --llm local \
+	  --local-model-path outputs/qwen25-dpo \
+	  --num_mcts_sims 10 \
+	  --max_realizations 3 \
+	  --Q_0 0.25 \
+	```
+5. **Evaluate or compare against baselines**  
+	```bash
+	~/GDPZero$ python test.py \
+	  -f outputs/gdpzero_qwen25_dpo.pkl \
+	  --judge gpt-3.5-turbo \
+	  --output eval_qwen25_dpo.pkl
+	```
+	You can also pass `--h2h <other.pkl>` to perform head-to-head comparisons.
+
+	A convenience wrapper is provided in `scripts/run_gdpzero_qwen.sh`; pass the checkpoint path as the first argument (defaults to `outputs/qwen25-dpo`).
+
 ## Examples
 
 We provided some example generations in the `output` directory. For instance:

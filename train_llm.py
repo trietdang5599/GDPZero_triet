@@ -156,6 +156,32 @@ def build_preference_examples(
     rng: random.Random,
 ) -> List[PreferenceExample]:
     records = list(records)
+    direct_pairs = [
+        rec for rec in records if "prompt" in rec and "chosen" in rec and "rejected" in rec
+    ]
+    if direct_pairs:
+        preference_examples: List[PreferenceExample] = []
+        for idx, rec in enumerate(direct_pairs):
+            prompt = str(rec.get("prompt", "")).strip()
+            chosen = str(rec.get("chosen", "")).strip()
+            rejected = str(rec.get("rejected", "")).strip()
+            if not chosen or not rejected or chosen == rejected:
+                continue
+            preference_examples.append(
+                PreferenceExample(
+                    prompt=prompt,
+                    chosen=chosen,
+                    rejected=rejected,
+                    dialog_id=str(rec.get("dialog_id", idx)),
+                    turn_index=int(rec.get("turn_index", idx)),
+                )
+            )
+        if not preference_examples:
+            raise ValueError("Preference dataset did not contain any valid prompt/chosen/rejected triples.")
+        return preference_examples
+    else:
+        print("No direct preference pairs found; constructing from conversation examples.")
+        return 
     # direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
 
     # if direct_pairs:
