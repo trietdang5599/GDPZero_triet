@@ -238,12 +238,12 @@ def main(cmd_args):
 			}
 			output.append(cmp_data)
 
-			if cmd_args.debug:
-				print("Context:\n%s", context)
-				print("human resp: %s", human_resp)
-				print("human da: %s", next_sys_da)
-				print("mcts resp: %s", mcts_pred_rep)
-				print("mcts da: %s", mcts_policy_next_da)
+			# if cmd_args.debug:
+			logger.info("Context:\n%s", context)
+			logger.info("human resp: %s", human_resp)
+			logger.info("human da: %s", next_sys_da)
+			logger.info("mcts resp: %s", mcts_pred_rep)
+			logger.info("mcts da: %s", mcts_policy_next_da)
 		with open(cmd_args.output, "wb") as f:
 			pickle.dump(output, f)
 		num_done += 1

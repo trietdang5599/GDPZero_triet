@@ -379,8 +379,8 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 		data = self.generation_model.chat_generate(messages, **inf_args)
 		sampled_das = self._get_user_generated_da(data)
 
-		logger.info(f"persuadee prompt: {messages}")
-		logger.info(f"sampled das: {sampled_das}")
+		logger.debug(f"persuadee prompt: {messages}")
+		logger.debug(f"sampled das: {sampled_das}")
 
 		# heuristic score
 		score = []
@@ -396,7 +396,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 			elif da == PersuasionGame.U_Donate:
 				score.append(1.0)
 		v = 0.0 if len(score) == 0 else np.mean(score)
-		logger.debug(f"sampled das to v: {v}")
+		logger.info(f"sampled das to v: {v}")
 		return float(v)
 
 
