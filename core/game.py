@@ -104,7 +104,7 @@ class PersuasionGame(DialogGame):
 		return {
 			"system": {
 				"dialog_acts": [
-					PersuasionGame.S_PersonalStory, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_EmotionAppeal,
+					PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_PersonalStory, PersuasionGame.S_EmotionAppeal,
 					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_FootInTheDoor, PersuasionGame.S_LogicalAppeal,
 					PersuasionGame.S_SelfModeling, PersuasionGame.S_TaskRelatedInquiry, PersuasionGame.S_SourceRelatedInquiry,
 					PersuasionGame.S_PersonalRelatedInquiry, PersuasionGame.S_NeutralToInquiry, PersuasionGame.S_Greeting,

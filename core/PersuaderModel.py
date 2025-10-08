@@ -216,6 +216,15 @@ class PersuaderChatModel(PersuaderModel):
 		sanitized = sanitized.strip()
 		# strip any residual XML-like tags the model might emit (e.g. <Persuader>)
 		sanitized = re.sub(r"</?[^>\s]+>", "", sanitized)
+		# remove disclaimer-style suffixes the model may attach after the main sentence
+		disclaimer_patterns = [
+			r"[.?!]\s*disclaimer:.*",
+			r"[.?!]\s*please note.*",
+			r"[.?!]\s*remember.*",
+			r"[.?!]\s*as an ai.*",
+		]
+		for pattern in disclaimer_patterns:
+			sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE).rstrip()
 		if "\n" in sanitized:
 			sanitized = sanitized.splitlines()[0].strip()
 		disclaimer_markers = [
@@ -233,7 +242,7 @@ class PersuaderChatModel(PersuaderModel):
 		if not sanitized:
 			return "Persuader: "
 		if not sanitized.lower().startswith("persuader:"):
-			sanitized = f"Persuader: {sanitized}"
+			sanitized = f"{sanitized}"
 		return sanitized
 	
 	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:

@@ -110,6 +110,7 @@ class MCTS():
 		for a in self.valid_moves[hashable_state]:
 			prob[a] = self.Nsa[hashable_state][a]
 		prob /= prob.sum()
+		print("prob: ", prob)
 		return prob
 
 
@@ -248,6 +249,7 @@ class OpenLoopMCTS(MCTS):
 		# now we are single player, hence just v instead of -v
 		return v
 	
+	# tạo ra câu trả lời tốt nhất dựa trên action
 	def get_best_realization(self, state:DialogSession, action: int):
 		prefetch_state = self._to_string_rep(state) + "__" + self.player.dialog_acts[action]
 		if prefetch_state not in self.realizations_Vs:
