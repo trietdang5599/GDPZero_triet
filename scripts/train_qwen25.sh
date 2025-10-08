@@ -17,12 +17,14 @@ NUM_GPUS="${NUM_GPUS:-1}"
 MASTER_PORT="${MASTER_PORT:-29500}"
 
 # tránh phân mảnh VRAM cho model lớn
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:512}"
 # env NCCL an toàn single-node
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-lo}"
-export NCCL_BLOCKING_WAIT="${NCCL_BLOCKING_WAIT:-1}"
+# export NCCL_BLOCKING_WAIT="${NCCL_BLOCKING_WAIT:-1}"
+unset NCCL_BLOCKING_WAIT
+export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 echo "=== GDPZero Qwen2.5-7B Training Pipeline (accelerate) ==="
@@ -51,7 +53,7 @@ fi
 run_training () {
   if (( NUM_GPUS > 1 )); then
     # dùng accelerate launch để spawn DDP đúng chuẩn
-	"${ACCELERATE_BIN}" launch \
+	accelerate launch \
 	--multi_gpu \
 	--num_processes "${NUM_GPUS}" \
 	--num_machines 1 \
