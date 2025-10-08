@@ -454,7 +454,7 @@ class LocalModel(GenerationModel):
 		if self.tokenizer.pad_token is None:
 			self.tokenizer.pad_token = self.tokenizer.eos_token
 		if model_name.startswith("meta-llama") or model_name.startswith("Meta-Llama"):
-			load_kwargs["load_in_8bit"] = self.cuda
+			# load_kwargs["load_in_8bit"] = self.cuda
 			self.model = LlamaForCausalLM.from_pretrained(
 				model_name,
 				trust_remote_code=trust_remote_code,
