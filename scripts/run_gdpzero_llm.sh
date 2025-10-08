@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LLM="${LLM:-qwen2.5-7b}"
-LOG-LEVEL="${LOG_LEVEL:-INFO}"
+LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 PYTHON_BIN="${PYTHON:-python}"
 SIM_COUNTS=(10 20)
@@ -25,7 +25,7 @@ for sims in "${SIM_COUNTS[@]}"; do
 		--max_realizations 3 \
 		--num_dialogs 30 \
 		--Q_0 0.25 \
-		--log-level "${LOG-LEVEL}" \
+		--log-level "${LOG_LEVEL}" \
 		"$@"
 done
 
