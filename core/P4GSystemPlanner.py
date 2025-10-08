@@ -301,6 +301,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 				pred_da.append(found_da)
 		return pred_da
 
+	# Nếu k predict được action có trong user_dialog_acts thì sẽ bị lỗi
 	def predict(self, state:DialogSession) -> "Tuple[np.ndarray, float]":
 		# test k times and compute prob. See num_return_sequences in the API
 		# the value would be our objective function
@@ -316,9 +317,10 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 			messages += self.__proccess_chat_exp(state, keep_sys_da=True, keep_user_da=False)
 		# produce a response
 		data = self.generation_model.chat_generate(messages, **self.inf_args)
-
+		# print(f"data :{data}")
 		sampled_das = self._get_generated_da(data)
-		logger.debug(f"sampled das: {sampled_das}")
+		# logger.debug(f"sampled das: {sampled_das}")
+		print(f"sampled das: {sampled_das}")
 		# convert to prob distribution
 		prob = np.zeros(len(self.dialog_acts))
 		prob += self.smoothing
