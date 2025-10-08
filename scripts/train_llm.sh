@@ -10,21 +10,55 @@ ACCELERATE_BIN="${ACCELERATE_BIN:-accelerate}"
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
 PREF_PATH="${REPO_ROOT}/data/p4g/preferences.jsonl"
-SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME}-sft"
-DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME}-dpo"
+SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft"
+DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo"
 
-NUM_GPUS="${NUM_GPUS:-1}"
+NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-29500}"
+GPU_IDS="${GPU_IDS:-}"           # ví dụ: "0,3" để dùng GPU 0 và 3
 
 # tránh phân mảnh VRAM cho model lớn
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:512}"
-# env NCCL an toàn single-node
+# order ổn định
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=0
 
+# --- Detect available GPUs (theo hệ thống) ---
+detect_gpus_py=$'import torch,os; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)'
+AVAILABLE_GPUS="$(${PYTHON_BIN} - <<PY
+${detect_gpus_py}
+PY
+)"
+
+# Nếu user chỉ định GPU_IDS thì dùng đúng y chang (và set NUM_GPUS = số id)
+if [[ -n "${GPU_IDS}" ]]; then
+  # chuẩn hoá bỏ khoảng trắng
+  GPU_IDS="$(echo "${GPU_IDS}" | tr -d '[:space:]')"
+  export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
+  # đếm số id
+  IFS=',' read -r -a _gpu_arr <<< "${GPU_IDS}"
+  NUM_GPUS="${#_gpu_arr[@]}"
+else
+  # Không chỉ định GPU cụ thể → tạo dải 0..NUM_GPUS-1 nhưng không vượt AVAILABLE_GPUS
+  if (( AVAILABLE_GPUS == 0 )); then
+    # Không có GPU → fallback CPU
+    unset CUDA_VISIBLE_DEVICES
+    NUM_GPUS=0
+  else
+    # clamp NUM_GPUS vào [1..AVAILABLE_GPUS]
+    if (( NUM_GPUS > AVAILABLE_GPUS )); then
+      echo "[warn] Requested NUM_GPUS=${NUM_GPUS} > available ${AVAILABLE_GPUS}. Clamping to ${AVAILABLE_GPUS}."
+      NUM_GPUS="${AVAILABLE_GPUS}"
+    fi
+    # build "0,1,2,..."
+    ids=()
+    for ((i=0; i<NUM_GPUS; i++)); do ids+=("$i"); done
+    export CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${ids[*]}")"
+  fi
+fi
+
+# NCCL env cho single-node
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-lo}"
-# export NCCL_BLOCKING_WAIT="${NCCL_BLOCKING_WAIT:-1}"
 unset NCCL_BLOCKING_WAIT
 export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
@@ -37,6 +71,8 @@ echo "Dialog dataset    : ${DATASET_PATH}"
 echo "Preference output : ${PREF_PATH}"
 echo "SFT checkpoint    : ${SFT_OUTPUT}"
 echo "DPO checkpoint    : ${DPO_OUTPUT}"
+echo "AVAILABLE_GPUS    : ${AVAILABLE_GPUS}"
+echo "CUDA_VISIBLE_DEVS : ${CUDA_VISIBLE_DEVICES:-<CPU>}"
 echo "GPUs requested    : ${NUM_GPUS}"
 
 [[ -f "${DATASET_PATH}" ]] || { echo "Dataset not found at ${DATASET_PATH}" >&2; exit 1; }
@@ -53,18 +89,22 @@ else
 fi
 
 run_training () {
-  if (( NUM_GPUS > 1 )); then
-    # dùng accelerate launch để spawn DDP đúng chuẩn
-	accelerate launch \
-	--multi_gpu \
-	--num_processes "${NUM_GPUS}" \
-	--num_machines 1 \
-	--mixed_precision no \
-	--dynamo_backend no \
-	--main_process_port "${MASTER_PORT}" \
-	"${REPO_ROOT}/train_llm.py" "$@"
-
+  if (( NUM_GPUS >= 2 )); then
+    # multi-GPU đúng chuẩn: num_processes == số GPU visible
+    "${ACCELERATE_BIN}" launch \
+      --multi_gpu \
+      --num_processes "${NUM_GPUS}" \
+      --num_machines 1 \
+      --mixed_precision no \
+      --dynamo_backend no \
+      --main_process_port "${MASTER_PORT}" \
+      "${REPO_ROOT}/train_llm.py" "$@"
+  elif (( NUM_GPUS == 1 )); then
+    # single GPU (một tiến trình, không spawn rank >0)
+    "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
   else
+    # CPU fallback
+    echo "[warn] No CUDA GPUs detected. Running on CPU."
     "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
   fi
 }
