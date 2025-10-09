@@ -37,6 +37,7 @@ for sims in "${SIM_COUNTS[@]}"; do
 		--local-model-path "${MODEL_PATH}" \
 		--output "${output_file}" \
 		--num_mcts_sims "${sims}" \
+		--num_dialogs 30 \
 		--max_realizations 3 \
 		--Q_0 0.25 \
 		"$@" | tee "${log_file}"
