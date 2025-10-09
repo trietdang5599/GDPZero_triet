@@ -10,7 +10,8 @@ MODEL_PATH="${1:-outputs/qwen25-dpo}"
 SIM_COUNTS=(10 20)
 LOG_DIR="${REPO_ROOT}/logs"
 OUTPUT_DIR="${REPO_ROOT}/outputs"
-OUTPUT_PREFIX="${OUTPUT_DIR}/gdpzero_qwen_local"
+MODEL_NAME="${MODEL_NAME:-qwen2.5-0.5b}"
+OUTPUT_PREFIX="${OUTPUT_DIR}/gdpzero_${MODEL_NAME}_local"
 EVAL_DIR="${OUTPUT_DIR}/evaluation"
 JUDGE="${JUDGE:-Qwen/Qwen2.5-0.5B-Instruct}"
 
