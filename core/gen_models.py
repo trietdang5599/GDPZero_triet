@@ -535,7 +535,23 @@ class LocalModel(GenerationModel):
 		inputs = {k: v.to(self.device) for k, v in inputs.items()}
 		prompt_len = inputs['input_ids'].shape[-1]
 		with torch.no_grad():
-			outputs = self.model.generate(**inputs, **gen_params)
+			try:
+				outputs = self.model.generate(**inputs, **gen_params)
+			except ValueError as exc:
+				msg = str(exc)
+				if "not used by the model" in msg:
+					unused = re.findall(r"'([^']+)'", msg)
+					stripped_any = False
+					for key in unused:
+						if key in gen_params:
+							gen_params.pop(key, None)
+							stripped_any = True
+					if stripped_any:
+						outputs = self.model.generate(**inputs, **gen_params)
+					else:
+						raise
+				else:
+					raise
 		gen_only_outputs = outputs[:, prompt_len:].detach().cpu()
 		gen_resps = self.tokenizer.batch_decode(gen_only_outputs, skip_special_tokens=True)
 		gen_output = []
