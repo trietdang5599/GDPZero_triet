@@ -414,6 +414,8 @@ def main() -> None:
             system_role=args.system_role,
             user_role=args.user_role,
         )
+        for ex in examples[:3]:
+            print(f"Prompt: {ex.prompt}\nCompletion: {ex.completion}\n---")
         if not examples:
             raise ValueError("No training examples constructed from dataset.")
 
