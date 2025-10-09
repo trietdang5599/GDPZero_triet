@@ -11,6 +11,7 @@ LOG_LEVEL="${LOG_LEVEL:-INFO}"
 PYTHON_BIN="${PYTHON:-python}"
 SIM_COUNTS=(10 20)
 OUTPUT_PREFIX="outputs/gdpzero_base_${LLM}"
+JUDGE="${JUDGE:-Qwen/Qwen2.5-0.5B-Instruct}"
 
 echo "Running GDPZero for simulation counts: ${SIM_COUNTS[*]}"
 echo "Using python executable: ${PYTHON_BIN}"
