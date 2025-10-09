@@ -19,7 +19,7 @@ def main(args):
 	# backbone_model = OpenAIModel('text-davinci-003')
 	if args.judge in ['gpt-3.5-turbo', 'gpt-5-nano', 'gpt-4o-mini']:
 		backbone_model = OpenAIChatModel(args.judge)
-	elif args.judge in ['gpt2', 'Qwen/Qwen2.5-7B-Instruct']:
+	elif args.judge in ['gpt2', 'Qwen/Qwen2.5-7B-Instruct', 'Qwen/Qwen2.5-0.5B-Instruct']:
 		backbone_model = LocalModel(args.judge)
 	elif args.judge == 'chatgpt':
 		backbone_model = AzureOpenAIChatModel(args.judge)

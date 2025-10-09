@@ -6,39 +6,46 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PYTHON_BIN="${PYTHON:-python}"
-SIM_COUNTS=(10 20 30 40)
-MODEL_DIRS=("gpt2-sft" "gpt2-dpo")
-RUNNER_PATH="${REPO_ROOT}/runners/gdpzero.py"
+MODEL_PATH="${1:-outputs/qwen25-dpo}"
+SIM_COUNTS=(10 20)
+LOG_DIR="${REPO_ROOT}/logs"
+OUTPUT_DIR="${REPO_ROOT}/outputs"
+OUTPUT_PREFIX="${OUTPUT_DIR}/gdpzero_qwen_local"
+EVAL_DIR="${OUTPUT_DIR}/evaluation"
+JUDGE="${JUDGE:-Qwen/Qwen2.5-0.5B-Instruct}"
 
-if [[ ! -f "${RUNNER_PATH}" ]]; then
-	echo "Runner script not found at ${RUNNER_PATH}" >&2
+echo "Running GDPZero for simulation counts: ${SIM_COUNTS[*]}"
+echo "Using python executable: ${PYTHON_BIN}"
+echo "Using local model path: ${MODEL_PATH}"
+echo "Using judge model: ${JUDGE}"
+
+if [[ ! -d "${MODEL_PATH}" ]]; then
+	echo "Model directory ${MODEL_PATH} not found. Pass the path as the first argument." >&2
 	exit 1
 fi
 
-echo "Running GDPZero for models: ${MODEL_DIRS[*]}"
-echo "Simulation counts: ${SIM_COUNTS[*]}"
-echo "Using python executable: ${PYTHON_BIN}"
+mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}" "${EVAL_DIR}"
 
-for model_name in "${MODEL_DIRS[@]}"; do
-	model_path="outputs/${model_name}"
-	if [[ ! -d "${model_path}" ]]; then
-		echo "Warning: model directory ${model_path} not found, skipping." >&2
-		continue
-	fi
-	echo "\n##### Model: ${model_name} #####"
-	for sims in "${SIM_COUNTS[@]}"; do
-		output_file="outputs/gdpzero_${model_name}_${sims}.pkl"
-		echo "\n=== ${model_name}: --num_mcts_sims ${sims} (output: ${output_file}) ==="
-		"${PYTHON_BIN}" "${RUNNER_PATH}" \
-			--output "${output_file}" \
-			--llm local \
-			--local-model-path "${model_path}" \
-			--num_mcts_sims "${sims}" \
-			--max_realizations 3 \
-			--Q_0 0.25 \
-			--debug \
-			"$@"
-	done
+for sims in "${SIM_COUNTS[@]}"; do
+	output_file="${OUTPUT_PREFIX}_${sims}sims.pkl"
+	run_stamp="$(date +%Y%m%d_%H%M%S)"
+	log_file="${LOG_DIR}/gdpzero_qwen25_${sims}_${run_stamp}.log"
+	echo "\n=== Running with --local-model-path:${MODEL_PATH} --num_mcts_sims ${sims} ==="
+	"${PYTHON_BIN}" "${REPO_ROOT}/runners/gdpzero.py" \
+		--llm local \
+		--local-model-path "${MODEL_PATH}" \
+		--output "${output_file}" \
+		--num_mcts_sims "${sims}" \
+		--max_realizations 3 \
+		--Q_0 0.25 \
+		"$@" | tee "${log_file}"
+
+	eval_output_file="${EVAL_DIR}/$(basename "${output_file}" .pkl)_${run_stamp}_eval.pkl"
+	echo "\n--- Evaluating ${output_file} (results -> ${eval_output_file}) ---"
+	"${PYTHON_BIN}" "${REPO_ROOT}/test.py" \
+		-f "${output_file}" \
+		--judge "${JUDGE}" \
+		--output "${eval_output_file}"
 done
 
 echo "\nAll runs completed."
