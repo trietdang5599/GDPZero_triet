@@ -483,7 +483,14 @@ class LocalModel(GenerationModel):
 	def _prepare_generation_args(self, gen_args: Dict) -> Dict:
 		gen_params = {**self.inference_args}
 		gen_params.update(gen_args)
-		gen_params.pop("return_full_text", None)
+		legacy_max = gen_params.pop("max_tokens", None)
+		if legacy_max is not None and gen_params.get("max_new_tokens") is None:
+			gen_params["max_new_tokens"] = legacy_max
+		legacy_num_ret = gen_params.pop("n", None)
+		if legacy_num_ret is not None and gen_params.get("num_return_sequences") is None:
+			gen_params["num_return_sequences"] = legacy_num_ret
+		for legacy in ("return_fulLocalModell_text", "echo", "stop"):
+			gen_params.pop(legacy, None)
 		if gen_params.get("num_return_sequences", 1) < 1:
 			gen_params["num_return_sequences"] = 1
 		if gen_params.get("num_return_sequences", 1) > 1 and not gen_params.get("do_sample", False):
