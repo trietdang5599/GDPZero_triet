@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LLM="${LLM:-qwen2.5-7b}"
+OUTPUT_DIR="${REPO_ROOT}/outputs"
 EVAL_DIR="${OUTPUT_DIR}/evaluation"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
