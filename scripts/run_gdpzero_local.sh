@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PYTHON_BIN="${PYTHON:-python}"
-MODEL_PATH="${1:-outputs/qwen25-dpo}"
+MODEL_PATH="${MODEL_PATH:-outputs/qwen25-dpo}"
 SIM_COUNTS=(10 20)
 LOG_DIR="${REPO_ROOT}/logs"
 OUTPUT_DIR="${REPO_ROOT}/outputs"
