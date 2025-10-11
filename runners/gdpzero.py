@@ -151,6 +151,7 @@ def main(cmd_args):
 		dialog = all_dialogs[did]
 		
 		state = game.init_dialog()
+		donation_success = False
 		for t, turn in enumerate(dialog["dialog"]):
 			if len(turn["ee"]) == 0:  # ended
 				break
@@ -173,10 +174,6 @@ def main(cmd_args):
 			else:
 				usr_da = PersuasionGame.U_Neutral
 
-			# game ended
-			if usr_da == PersuasionGame.U_Donate:
-				break
-
 			# map sys as well
 			sys_utt = " ".join(turn["er"]).strip()
 			sys_da = set(dialog["label"][t]["er"])
@@ -197,6 +194,16 @@ def main(cmd_args):
 			"""
 			context = context.replace('\t', '').strip()
 
+			if usr_da == PersuasionGame.U_Donate:
+				logger.info(
+					"Dialog %s success: persuadee agreed to donate at turn %s with response: %s",
+					did,
+					t,
+					usr_utt,
+				)
+				donation_success = True
+				break
+
 			# mcts policy
 			if isinstance(backbone_model, OpenAIModel):
 				backbone_model._cached_generate.cache_clear()
@@ -205,8 +212,10 @@ def main(cmd_args):
 			for i in tqdm(range(args.num_MCTS_sims)):
 				dialog_planner.search(state)
 
-			mcts_policy = dialog_planner.get_action_prob(state)
+			mcts_policy = dialog_planner.get_action_prob(state, did)
 			mcts_policy_next_da = system.dialog_acts[np.argmax(mcts_policy)]
+
+			print("mcts_policy_next_da: ", mcts_policy_next_da)
 
 			# # fetch the generated utterance from simulation
 			mcts_pred_rep = dialog_planner.get_best_realization(state, np.argmax(mcts_policy))
@@ -254,6 +263,9 @@ def main(cmd_args):
 			logger.info("human da: %s", next_sys_da)
 			logger.info("mcts resp: %s", mcts_pred_rep)
 			logger.info("mcts da: %s", mcts_policy_next_da)
+		# final of the game
+		final_outcome = 1.0 if donation_success else game.get_dialog_ended(state)
+		logger.info("Dialog %s final outcome: %s", did, final_outcome)
 		with open(cmd_args.output, "wb") as f:
 			pickle.dump(output, f)
 		num_done += 1

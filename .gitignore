@@ -7,3 +7,4 @@ __pycache__
 outputs/gpt2*
 outputs/results/
 final_result
+logs
