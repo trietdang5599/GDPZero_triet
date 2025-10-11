@@ -67,23 +67,16 @@ class DialogGame(ABC):
 		"""returns 0 if not ended, then (in general) 1 if system success, -1 if failure 
 		"""
 		raise NotImplementedError
-
-
+	
 class PersuasionGame(DialogGame):
 	SYS = "Persuader"
 	USR = "Persuadee"
 
-	S_PersonalStory = "personal story"
 	S_CredibilityAppeal = "credibility appeal"
 	S_EmotionAppeal = "emotion appeal"
 	S_PropositionOfDonation = "proposition of donation"
-	S_FootInTheDoor = "foot in the door"
 	S_LogicalAppeal = "logical appeal"
-	S_SelfModeling = "self modeling"
 	S_TaskRelatedInquiry = "task related inquiry"
-	S_SourceRelatedInquiry = "source related inquiry"
-	S_PersonalRelatedInquiry = "personal related inquiry"
-	S_NeutralToInquiry = "neutral to inquiry"
 	S_Greeting = "greeting"
 	S_Other = "other"
 
@@ -104,10 +97,9 @@ class PersuasionGame(DialogGame):
 		return {
 			"system": {
 				"dialog_acts": [
-					PersuasionGame.S_Greeting, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_PersonalStory, PersuasionGame.S_EmotionAppeal,
-					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_FootInTheDoor, PersuasionGame.S_LogicalAppeal,
-					PersuasionGame.S_SelfModeling, PersuasionGame.S_TaskRelatedInquiry, PersuasionGame.S_SourceRelatedInquiry,
-					PersuasionGame.S_PersonalRelatedInquiry, PersuasionGame.S_NeutralToInquiry,
+					PersuasionGame.S_Greeting, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_EmotionAppeal,
+					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_LogicalAppeal,
+					PersuasionGame.S_TaskRelatedInquiry,
 					PersuasionGame.S_Other
 				],
 			},
