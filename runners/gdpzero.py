@@ -307,8 +307,8 @@ if __name__ == "__main__":
 		llm_label = cmd_args.llm
 		model_label = Path(cmd_args.local_model_path).name if cmd_args.local_model_path else "base"
 		cmd_args.output = (
-			f"outputs/gdpzero-{cmd_args.num_mcts_sims}sims-"
-			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}Q-{cmd_args.num_dialogs}.pkl"
+			f"outputs/gdpzero_"
+			f"{llm_label}_{model_label}_{cmd_args.num_mcts_sims}sims_{cmd_args.num_dialogs}.pkl"
 		)
 
 	logger.info("Saving to %s", cmd_args.output)

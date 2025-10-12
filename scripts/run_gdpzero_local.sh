@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PYTHON_BIN="${PYTHON:-python}"
 MODEL_PATH="${MODEL_PATH:-outputs/qwen25-dpo}"
 SIM_COUNTS=(10 20)
+NUM_DIALOGS="${NUM_DIALOGS:-30}"
 LOG_DIR="${REPO_ROOT}/logs"
 OUTPUT_DIR="${REPO_ROOT}/outputs"
 MODEL_NAME="${MODEL_NAME:-qwen2.5-0.5b}"
@@ -28,9 +29,9 @@ fi
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}" "${EVAL_DIR}"
 
 for sims in "${SIM_COUNTS[@]}"; do
-	output_file="${OUTPUT_PREFIX}_${sims}sims.pkl"
+	output_file="${OUTPUT_PREFIX}_${sims}sims_${NUM_DIALOGS}.pkl"
 	run_stamp="$(date +%Y%m%d_%H%M%S)"
-	log_file="${LOG_DIR}/gdpzero_qwen25_${sims}_${run_stamp}.log"
+	log_file="${LOG_DIR}/gdpzero_${MODEL_NAME}_${sims}_${run_stamp}.log"
 	echo "\n=== Running with --local-model-path:${MODEL_PATH} --num_mcts_sims ${sims} ==="
 	"${PYTHON_BIN}" "${REPO_ROOT}/runners/gdpzero.py" \
 		--llm local \
