@@ -89,6 +89,8 @@ else
   echo "[1/3] Preference dataset already exists at ${PREF_PATH}, skipping."
 fi
 
+PREF_PATH="preference_pair.jsonl
+
 run_training () {
   if (( NUM_GPUS >= 2 )); then
     # multi-GPU đúng chuẩn: num_processes == số GPU visible
