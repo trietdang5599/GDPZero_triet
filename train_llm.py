@@ -24,9 +24,8 @@ from transformers import (
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
 from accelerate.utils import set_seed
-# import torch.distributed as dist
-# dist.init_process_group(backend="nccl", timeout=torch.timedelta(seconds=120))
-set_seed(42)
+from torch.distributed.elastic.utils import record
+
 
 try:
     from trl import DPOTrainer, DPOConfig
@@ -302,6 +301,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+@record
 def main() -> None:
     args = parse_args()
 
