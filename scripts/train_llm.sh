@@ -18,6 +18,12 @@ if [[ -z "${ACCELERATE_CONFIG:-}" && -f "${DEFAULT_ACCELERATE_CFG}" ]]; then
 	ACCELERATE_CONFIG="${DEFAULT_ACCELERATE_CFG}"
 fi
 
+USE_LORA="${USE_LORA:-1}"
+LORA_R="${LORA_R:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
+LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
+
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-29500}"
 GPU_IDS="${GPU_IDS:-}"           # ví dụ: "0,3" để dùng GPU 0 và 3
@@ -119,8 +125,19 @@ run_training () {
 		# CPU fallback
 		echo "[warn] No CUDA GPUs detected. Running on CPU."
 		"${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-	fi
+fi
 }
+
+LORA_ARGS=()
+if [[ "${USE_LORA}" != "0" ]]; then
+	LORA_ARGS=(
+		--use-lora
+		--lora-r "${LORA_R}"
+		--lora-alpha "${LORA_ALPHA}"
+		--lora-dropout "${LORA_DROPOUT}"
+		--lora-target-modules "${LORA_TARGET_MODULES}"
+	)
+fi
 
 echo "[2/3] Running supervised fine-tuning ..."
 run_training \
@@ -133,6 +150,7 @@ run_training \
   --num-train-epochs 10 \
   --learning-rate 2e-5 \
   --max-length 512 \
+  "${LORA_ARGS[@]}" \
   "$@"
 
 echo "[3/3] Running DPO preference optimization..."
@@ -148,6 +166,7 @@ run_training \
   --learning-rate 1e-5 \
   --max-length 512 \
   --dpo-beta 0.1 \
+  "${LORA_ARGS[@]}" \
   "$@"
 
 echo "Training pipeline complete."

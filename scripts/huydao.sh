@@ -1,0 +1,46 @@
+export NCCL_P2P_DISABLE=1     
+            accelerate launch --main_process_port 4040 --gpu_ids 1,2,3,4,5,6,7 --config_file config/accelerate_config.yaml --multi_gpu --num_processes 7 src/midituning/train_rlof.py \
+                        --dataset_name ${DATASET_NAME} \
+                        --data_path data/${DATASET_NAME}/data_fmt_dialog/train.json \
+                        --eval_data_path data/${DATASET_NAME}/data_fmt_dialog/dev.json \
+                        --output_dir logs/${DATASET_NAME}/rlof_${MODEL_NAME}_${seed} \
+                        --num_ppo_epochs 4 \
+                        --num_mini_batches 1 \
+                        --learning_rate 3e-6 \
+                        --per_device_train_batch_size 1 \
+                        --gradient_accumulation_steps 8 \
+                        --total_episodes 50000 \
+                        --model_max_length 512 \
+                        --max_grad_norm 1 \
+                        --response_length 30 \
+                        --gradient_checkpointing \
+                        --warmup_ratio 0.03 \
+                        --lr_scheduler_type "cosine" \
+                        --logging_steps 10 \
+                        --save_strategy "steps" \
+                        --save_steps 200 \
+                        --local_rank 0 \
+                        --lora_r 8 \
+                        --lora_alpha 16 \
+                        --lora_dropout 0.05 \
+                        --use_peft \
+                        --use_rslora \
+                        --lora_task_type "CAUSAL_LM" \
+                        --fp16 \
+                        --world_size 8 \
+                        --kl_coef 0.6 \
+                        --random_seed ${seed} \
+                        --model_name_or_path ${MODEL_NAME} \
+                        --deepspeed config/deepspeed_config_s2.json \
+                        --sft_model_path logs/${DATASET_NAME}/sft_${MODEL_NAME}_${seed}/ \
+                        --local_rollout_forward_batch_size 1 \
+                        --missing_eos_penalty 1.0 \
+                        --reward_backbone_model_path ${MODEL_NAME} \
+                        --reward_model_path logs/${DATASET_NAME}/${MODEL_NAME}/reward_${seed}/sfs_pytorch_model.bin \
+                        --model_path logs/${DATASET_NAME}/vae_${seed} \
+                        --t5_model_name ${T5_MODEL_NAME} \
+                        --config_name ${T5_MODEL_NAME} \
+                        --ae_latent_size 64 \
+                        --set_seq_size 512 \
+                        --method_name RLOF \
+                        --project_name RLOF

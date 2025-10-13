@@ -31,6 +31,12 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     DPOTrainer = None
 
+try:
+    from peft import LoraConfig, get_peft_model
+except ImportError:
+    LoraConfig = None
+    get_peft_model = None
+
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
 print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
@@ -350,6 +356,33 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> AutoModelForCausalLM:
+    if not args.use_lora:
+        return model
+    if LoraConfig is None or get_peft_model is None:
+        raise ImportError("peft is required for --use-lora. Install it with `pip install peft`. ")
+    target_modules = [mod.strip() for mod in args.lora_target_modules.split(",") if mod.strip()]
+    if hasattr(model, "enable_input_require_grads"):
+        try:
+            model.enable_input_require_grads()
+        except Exception:
+            pass
+    lora_config = LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=target_modules or None,
+    )
+    model = get_peft_model(model, lora_config)
+    try:
+        model.print_trainable_parameters()
+    except AttributeError:
+        pass
+    return model
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data (SFT or DPO).")
     parser.add_argument("--dataset-path", type=Path, default=Path("data/p4g/300_dialog_turn_based.pkl"), help="Path to dialogue dataset (.pkl, .json, .jsonl).")
@@ -375,6 +408,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-total-limit", type=int, default=2, help="Max number of saved checkpoints.")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="Inverse temperature for the DPO loss.")
     parser.add_argument("--reference-model-name", type=str, default=None, help="Optional reference model identifier for DPO.")
+    parser.add_argument("--use-lora", action="store_true", help="Enable LoRA fine-tuning (requires peft).")
+    parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank.")
+    parser.add_argument("--lora-alpha", type=float, default=32.0, help="LoRA alpha scaling factor.")
+    parser.add_argument("--lora-dropout", type=float, default=0.05, help="LoRA dropout probability.")
+    parser.add_argument(
+        "--lora-target-modules",
+        type=str,
+        default="q_proj,k_proj,v_proj,o_proj",
+        help="Comma-separated list of module names to apply LoRA to.",
+    )
     return parser.parse_args()
 
 
@@ -394,6 +437,8 @@ def main() -> None:
     if tokenizer.pad_token_id is not None and model.config.pad_token_id != tokenizer.pad_token_id:
         model.resize_token_embeddings(len(tokenizer))
         model.config.pad_token_id = tokenizer.pad_token_id
+
+    model = maybe_wrap_lora(model, args)
 
     max_positions = getattr(model.config, "max_position_embeddings", args.max_length)
     effective_max_length = min(args.max_length, max_positions)
@@ -486,6 +531,7 @@ def main() -> None:
 
         trainer.train()
         trainer.save_model()
+        model.save_pretrained(args.output_dir)
     else:
         if DPOTrainer is None:
             raise ImportError("trl is required for DPO training. Install it with `pip install trl`. ")
@@ -530,6 +576,8 @@ def main() -> None:
         if tokenizer.pad_token_id is not None and reference_model.config.pad_token_id != tokenizer.pad_token_id:
             reference_model.resize_token_embeddings(len(tokenizer))
             reference_model.config.pad_token_id = tokenizer.pad_token_id
+        reference_model.requires_grad_(False)
+        reference_model.eval()
 
         do_eval = eval_dataset is not None
         dpo_args = DPOConfig(
@@ -568,6 +616,7 @@ def main() -> None:
 
         dpo_trainer.train()
         dpo_trainer.save_model()
+        model.save_pretrained(args.output_dir)
 
     tokenizer.save_pretrained(args.output_dir)
 
