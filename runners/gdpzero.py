@@ -13,14 +13,12 @@ import numpy as np
 
 from tqdm.auto import tqdm
 from core.gen_models import (
-	LocalModel, OpenAIModel, OpenAIChatModel, AzureOpenAIChatModel
+    OpenAIModel
 )
-from core.P4GSystemPlanner import P4GSystemPlanner, P4GChatSystemPlanner
-from core.PersuaderModel import PersuaderModel, PersuaderChatModel
-from core.PersuadeeModel import PersuadeeModel, PersuadeeChatModel
 from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.helpers import DialogSession
+from core.model_factory import create_factor_llm
 from utils.utils import dotdict
 from utils.prompt_examples import EXP_DIALOG
 
@@ -42,50 +40,7 @@ def main(cmd_args):
 
 	exp_1 = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 	
-
-	if cmd_args.llm in ['code-davinci-002']:
-		backbone_model = OpenAIModel(cmd_args.llm)
-		SysModel = PersuaderModel
-		UsrModel = PersuadeeModel
-		SysPlanner = P4GSystemPlanner
-	elif cmd_args.llm in ['gpt-3.5-turbo']:
-		backbone_model = OpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'gpt2':
-		model_source = cmd_args.local_model_path or 'gpt2'
-		backbone_model = LocalModel(model_source, trust_remote_code=cmd_args.local_trust_remote_code)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm in ['qwen2.5-0.5b','qwen2.5-7b', 'llamda-3-8b', 'deepseek-r1']:
-		if cmd_args.llm == 'qwen2.5-7b':
-			model_source = 'Qwen/Qwen2.5-7B-Instruct'
-		elif cmd_args.llm == 'qwen2.5-0.5b':
-			model_source = 'Qwen/Qwen2.5-0.5B-Instruct'
-		elif cmd_args.llm == 'llamda-3-8b':
-			model_source = 'meta-llama/Meta-Llama-3-8B-Instruct'
-		elif cmd_args.llm == 'deepseek-r1':
-			model_source = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-		backbone_model = LocalModel(model_source, trust_remote_code=True)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'local':
-		if not cmd_args.local_model_path:
-			raise ValueError("--local-model-path is required when --llm local")
-		backbone_model = LocalModel(cmd_args.local_model_path, trust_remote_code=cmd_args.local_trust_remote_code)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'chatgpt':
-		backbone_model = AzureOpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	else:
-		raise ValueError(f"Unsupported llm: {cmd_args.llm}")
+	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(cmd_args)
 	
 	system = SysModel(
 		sys_da,
@@ -162,17 +117,8 @@ def main(cmd_args):
 			usr_utt = " ".join(turn["ee"]).strip()
 			usr_da = dialog["label"][t]["ee"][-1]
 
-			# map to our dialog act
-			if usr_da == "disagree-donation":
-				usr_da = PersuasionGame.U_NoDonation
-			elif usr_da == "negative-reaction-to-donation":
-				usr_da = PersuasionGame.U_NegativeReaction
-			elif usr_da == "positive-reaction-to-donation":
-				usr_da = PersuasionGame.U_PositiveReaction
-			elif usr_da == "agree-donation":
-				usr_da = PersuasionGame.U_Donate
-			else:
-				usr_da = PersuasionGame.U_Neutral
+			usr_da = PersuasionGame.map_user_da(usr_da)
+			
 
 			# map sys as well
 			sys_utt = " ".join(turn["er"]).strip()
@@ -212,7 +158,7 @@ def main(cmd_args):
 			for i in tqdm(range(args.num_MCTS_sims)):
 				dialog_planner.search(state)
 
-			mcts_policy = dialog_planner.get_action_prob(state, did)
+			mcts_policy = dialog_planner.get_action_prob(state)
 			mcts_policy_next_da = system.dialog_acts[np.argmax(mcts_policy)]
 
 			print("mcts_policy_next_da: ", mcts_policy_next_da)

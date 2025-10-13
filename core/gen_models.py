@@ -58,6 +58,7 @@ _load_env_vars()
 def _get_openai_client(api_key: str) -> OpenAI:
 	if not api_key:
 		raise ValueError("OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
+	logging.getLogger("httpx").setLevel(logging.WARNING)
 	return OpenAI(api_key=api_key)
 
 
@@ -67,6 +68,7 @@ def _get_azure_openai_client(api_key: str, endpoint: str, api_version: str) -> A
 		raise ValueError("MS_OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
 	if not endpoint:
 		raise ValueError("MS_OPENAI_API_BASE is not set; please configure it in the environment or .env file.")
+	logging.getLogger("httpx").setLevel(logging.WARNING)
 	return AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
 
 

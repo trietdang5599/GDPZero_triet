@@ -9,7 +9,6 @@ from core.P4GSystemPlanner import DialogPlanner
 from utils.utils import (
 	summarize_action_statistics,
 	get_preference_pair,
-	export_preference_pair,
 )
 
 
@@ -111,7 +110,7 @@ class MCTS():
 		# now we are single player, hence just v instead of -v
 		return v
 
-	def get_action_prob(self, state:DialogSession, did):
+	def get_action_prob(self, state:DialogSession):
 		hashable_state = self._to_string_rep(state)
 		if hashable_state not in self.Ns:
 			# selected leaf node, expand
@@ -143,16 +142,8 @@ class MCTS():
 		worst_pair = preference_pair[2] if preference_pair else None
 		logger.info(f"Preference pair: {best_pair} | {worst_pair}")
 
-		export_preference_pair(
-			dialog_id=did,
-			state=state,
-			hashable_state=hashable_state,
-			preference_pair=preference_pair,
-			system_role=self.game.SYS,
-		)
-
 		logger.info(header)
-		logger.info("Action detail distribution:\n%s", detail)
+		logger.debug("Action detail distribution:\n%s", detail)
 		return prob
 
 

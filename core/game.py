@@ -112,19 +112,46 @@ class PersuasionGame(DialogGame):
 		}
 
 	def get_dialog_ended(self, state) -> float:
-		# terminate if there is a <donate> action in persudee resp
-		# allow only 10 turns
+		# terminate if there is a <donate> action in persuadee resp
 		if len(state) >= self.max_conv_turns:
-			logger.info("Dialog ended with persuasion failure")
+			logger.info(
+				"Dialog ended with persuasion failure (reason=max_turns, turns=%s, last_state=%s)",
+				len(state),
+				state[-1] if state else None,
+			)
 			return -1.0
-		for (_, da, _) in state:
+
+		for turn_idx, (role, da, utt) in enumerate(state):
 			if da == PersuasionGame.U_Donate:
-				logger.info("Dialog ended with donate")
+				logger.info(
+					"Dialog ended with donate (turn=%s, role=%s, utt=%s)",
+					turn_idx,
+					role,
+					utt,
+				)
 				return 1.0
 			if da == PersuasionGame.U_NoDonation:
-				logger.info("Dialog ended with no-donation")
+				logger.info(
+					"Dialog ended with no-donation (turn=%s, role=%s, utt=%s)",
+					turn_idx,
+					role,
+					utt,
+				)
 				return -1.0
 		return 0.0
+
+	@staticmethod
+	def map_user_da(raw_da: str) -> str:
+		if raw_da == "disagree-donation":
+			return PersuasionGame.U_NoDonation
+		if raw_da == "negative-reaction-to-donation":
+			return PersuasionGame.U_NegativeReaction
+		if raw_da == "positive-reaction-to-donation":
+			return PersuasionGame.U_PositiveReaction
+		if raw_da == "agree-donation":
+			return PersuasionGame.U_Donate
+		return PersuasionGame.U_Neutral
+	
 
 
 class EmotionalSupportGame(PersuasionGame):

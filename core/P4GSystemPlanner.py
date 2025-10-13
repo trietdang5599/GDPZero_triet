@@ -3,10 +3,10 @@ import numpy as np
 
 from typing import List, Tuple
 from core.helpers import DialogSession
-from core.gen_models import GenerationModel, DialogModel
+from core.gen_models import GenerationModel
 from core.game import PersuasionGame
 from abc import ABC, abstractmethod
-from collections import Counter
+# from collections import Counter
 
 
 logger = logging.getLogger(__name__)

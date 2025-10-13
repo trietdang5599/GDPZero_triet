@@ -8,6 +8,8 @@ from typing import Dict, Iterable, Optional, Tuple
 import numpy as np
 import torch
 
+from core.helpers import DialogSession
+
 def set_determinitic_seed(seed):
 	random.seed(seed)
 	np.random.seed(seed)
@@ -152,8 +154,7 @@ def summarize_action_statistics(
 
 def export_preference_pair(
     dialog_id: str,
-	state,
-	hashable_state: str,
+	state: DialogSession,
 	preference_pair: Optional[Tuple[int, Tuple[str, float], Tuple[str, float]]],
 	system_role: str,
 	output_path: Optional[Path] = None,

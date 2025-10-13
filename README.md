@@ -230,6 +230,9 @@ The commands below show a minimal pipeline to derive a preference dataset, train
 	  --output data/p4g/preferences.jsonl \
 	  --num-negatives 1
 	```
+  ```bash
+  python runners/generate_preference_pairs.py --only-success
+  ```
 2. **Supervised fine-tune Qwen2.5-7B (QLoRA)**  
 	```bash
 	~/GDPZero$ python train_llm.py \
