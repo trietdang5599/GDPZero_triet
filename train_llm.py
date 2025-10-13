@@ -24,7 +24,6 @@ from transformers import (
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
 from accelerate.utils import set_seed
-from torch.distributed.elastic.utils import record
 
 
 try:
@@ -301,7 +300,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-@record
 def main() -> None:
     args = parse_args()
 
