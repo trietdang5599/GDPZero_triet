@@ -25,7 +25,7 @@ LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
-MASTER_PORT="${MASTER_PORT:-29500}"
+MASTER_PORT="${MASTER_PORT:-0}"
 GPU_IDS="${GPU_IDS:-}"           # ví dụ: "0,3" để dùng GPU 0 và 3
 
 # tránh phân mảnh VRAM cho model lớn
@@ -65,6 +65,17 @@ else
     for ((i=0; i<NUM_GPUS; i++)); do ids+=("$i"); done
     export CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${ids[*]}")"
   fi
+fi
+
+# Nếu MASTER_PORT chưa được gán, chọn ngẫu nhiên một cổng rảnh để tránh xung đột giữa các job
+if [[ "${MASTER_PORT}" == "0" || "${MASTER_PORT}" == "auto" ]]; then
+	MASTER_PORT="$(${PYTHON_BIN} - <<'PY'
+import socket
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind(("", 0))
+    print(s.getsockname()[1])
+PY
+)"
 fi
 
 # NCCL env cho single-node

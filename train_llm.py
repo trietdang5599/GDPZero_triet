@@ -371,6 +371,7 @@ def main() -> None:
             save_total_limit=args.save_total_limit,
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
+            ddp_backend="nccl",
             ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
             gradient_checkpointing=True,        # nếu bật ở trên
             # 🔧 tránh treo do DataLoader
