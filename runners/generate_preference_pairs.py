@@ -238,6 +238,7 @@ def generate_preferences(cmd_args):
 				)
 			
 		should_export = donation_success or not cmd_args.only_success
+		pbar.update(1)
 		if should_export and pending_pairs:
 			for pair in pending_pairs:
 				export_preference_pair(
@@ -249,7 +250,7 @@ def generate_preferences(cmd_args):
 				)
 				total_pairs += 1
 			total_dialogs += 1
-		pbar.update(1)
+		print(f"Total dialogs with exported preferences: {total_dialogs}/{cmd_args.num_dialogs}, total pairs: {total_pairs}")
 	logger.info("Preference generation complete: %s pairs written in success dialog %s.",
              total_pairs, total_dialogs)
 

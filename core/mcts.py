@@ -67,9 +67,14 @@ class MCTS():
 			v = self._init_node(state)
 			is_leaf_node = True
 		# if this leaf node is terminal, return the value
-		if self.terminals[hashable_state] > 0:
+		if self.terminals[hashable_state] != 0:
 			# terminal node
-			logger.debug("ended")
+			logger.debug(
+				"MCTS simulation terminal (value=%s) state hash=%s\n%s",
+				self.terminals[hashable_state],
+				hashable_state,
+				state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1),
+			)
 			return self.terminals[hashable_state]
 		# otherwise, return v
 		if is_leaf_node:
@@ -236,8 +241,18 @@ class OpenLoopMCTS(MCTS):
 		# check everytime since state is stochastic, does not map to hashable_state
 		terminated_v = self.game.get_dialog_ended(state)
 		# check if it is terminal node
-		if terminated_v == 1.0:
-			logger.debug("ended")
+		if terminated_v != 0.0:
+			if terminated_v == 1.0:
+				isDonate = "Donation success!"
+			else:
+				isDonate = "Donation failed."
+			logger.info(
+				"MCTS simulation terminal (value=%s) state hash=%s\n%s",
+				terminated_v,
+				hashable_state,
+				# state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1),
+				isDonate
+			)
 			return terminated_v
 		
 		# otherwise, if is nontermial leaf node, we initialize and return v

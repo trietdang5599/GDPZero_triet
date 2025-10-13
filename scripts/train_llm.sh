@@ -10,7 +10,7 @@ ACCELERATE_BIN="${ACCELERATE_BIN:-accelerate}"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
-PREF_PATH="${REPO_ROOT}/data/p4g/preferences.jsonl"
+PREF_PATH="${REPO_ROOT}/data/p4g/preference_pair.jsonl"
 SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft"
 DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo"
 
@@ -80,11 +80,14 @@ echo "GPUs requested    : ${NUM_GPUS}"
 mkdir -p "$(dirname "${PREF_PATH}")" "${SFT_OUTPUT}" "${DPO_OUTPUT}"
 
 if [[ ! -f "${PREF_PATH}" ]]; then
-  echo "[1/3] Building preference dataset..."
-  "${PYTHON_BIN}" "${REPO_ROOT}/hf_train.py" build-preference-dataset \
-    --dialog-path "${DATASET_PATH}" \
-    --output "${PREF_PATH}" \
-    --num-negatives 1
+echo "[1/3] Building preference dataset..."
+"${PYTHON_BIN}" "${REPO_ROOT}/runners/generate_preference_pairs.py" \
+	--llm gpt-3.5-turbo \
+	--only-success \
+	--log-turn-details \
+	--num-dialogs "${NUM_DIALOGS:-30}" \
+	--num-mcts-sims "${NUM_MCTS_SIMS:-10}" \
+	--output "${PREF_PATH}"
 else
   echo "[1/3] Preference dataset already exists at ${PREF_PATH}, skipping."
 fi
