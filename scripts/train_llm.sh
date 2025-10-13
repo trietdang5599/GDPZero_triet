@@ -73,6 +73,8 @@ export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-lo}"
 unset NCCL_BLOCKING_WAIT
 export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+# transformers will try to import torchvision; disable to avoid GPU op mismatch
+export TRANSFORMERS_NO_TORCHVISION="${TRANSFORMERS_NO_TORCHVISION:-1}"
 
 echo "=== GDPZero Training Pipeline (accelerate) ==="
 echo "Python executable : ${PYTHON_BIN}"
