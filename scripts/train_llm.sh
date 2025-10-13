@@ -13,6 +13,10 @@ DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
 PREF_PATH="${REPO_ROOT}/data/p4g/preference_pair.jsonl"
 SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft"
 DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo"
+DEFAULT_ACCELERATE_CFG="${REPO_ROOT}/config/accelerate_config.yaml"
+if [[ -z "${ACCELERATE_CONFIG:-}" && -f "${DEFAULT_ACCELERATE_CFG}" ]]; then
+	ACCELERATE_CONFIG="${DEFAULT_ACCELERATE_CFG}"
+fi
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-29500}"
@@ -92,27 +96,30 @@ else
   echo "[1/3] Preference dataset already exists at ${PREF_PATH}, skipping."
 fi
 
-PREF_PATH="preference_pair.jsonl"
-
 run_training () {
-  if (( NUM_GPUS >= 2 )); then
-    # multi-GPU đúng chuẩn: num_processes == số GPU visible
-    "${ACCELERATE_BIN}" launch \
-      --multi_gpu \
-      --num_processes "${NUM_GPUS}" \
-      --num_machines 1 \
-      --mixed_precision no \
-      --dynamo_backend no \
-      --main_process_port "${MASTER_PORT}" \
-      "${REPO_ROOT}/train_llm.py" "$@"
-  elif (( NUM_GPUS == 1 )); then
-    # single GPU (một tiến trình, không spawn rank >0)
-    "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-  else
-    # CPU fallback
-    echo "[warn] No CUDA GPUs detected. Running on CPU."
-    "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-  fi
+	if (( NUM_GPUS >= 1 )); then
+		acc_args=(
+			--main_process_port "${MASTER_PORT}"
+			--num_machines 1
+			--num_processes "${NUM_GPUS}"
+			--mixed_precision no
+			--dynamo_backend no
+		)
+		if (( NUM_GPUS >= 2 )); then
+			acc_args+=(--multi_gpu)
+		fi
+		if [[ -n "${ACCELERATE_CONFIG:-}" ]]; then
+			acc_args+=(--config_file "${ACCELERATE_CONFIG}")
+		fi
+		if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+			acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
+		fi
+		"${ACCELERATE_BIN}" launch "${acc_args[@]}" "${REPO_ROOT}/train_llm.py" "$@"
+	else
+		# CPU fallback
+		echo "[warn] No CUDA GPUs detected. Running on CPU."
+		"${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
+	fi
 }
 
 echo "[2/3] Running supervised fine-tuning ..."
