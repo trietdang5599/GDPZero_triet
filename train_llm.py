@@ -24,8 +24,8 @@ from transformers import (
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
 from accelerate.utils import set_seed
-import torch.distributed as dist
-dist.init_process_group(backend="nccl", timeout=torch.timedelta(seconds=120))
+# import torch.distributed as dist
+# dist.init_process_group(backend="nccl", timeout=torch.timedelta(seconds=120))
 set_seed(42)
 
 try:
