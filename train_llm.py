@@ -7,8 +7,6 @@ import pickle
 import random
 import inspect
 import warnings
-from collections import defaultdict
-from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
@@ -25,6 +23,10 @@ from transformers import (
 )
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
+from accelerate.utils import set_seed
+import torch.distributed as dist
+dist.init_process_group(backend="nccl", timeout=torch.timedelta(seconds=120))
+set_seed(42)
 
 try:
     from trl import DPOTrainer, DPOConfig
@@ -158,12 +160,6 @@ def build_examples(
 # issue might be here
 def build_preference_examples(
     records: Iterable[Dict[str, Any]],
-    *,
-    system_field: str,
-    user_field: str,
-    system_role: str,
-    user_role: str,
-    rng: random.Random,
 ) -> List[PreferenceExample]:
     records = list(records)
     direct_pairs = [
@@ -192,114 +188,6 @@ def build_preference_examples(
     else:
         print("No direct preference pairs found; constructing from conversation examples.")
         return 
-    # direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
-
-    # if direct_pairs:
-    #     preference_examples: List[PreferenceExample] = []
-    #     for idx, rec in enumerate(direct_pairs):
-    #         context = str(rec.get("context", "")).strip()
-    #         chosen = str(rec.get("ori_resp", "")).strip()
-    #         rejected = str(rec.get("new_resp", "")).strip()
-    #         if not chosen or not rejected or chosen == rejected:
-    #             continue
-    #         prompt = context
-    #         if prompt:
-    #             prompt = prompt.rstrip()
-    #             if not prompt.endswith("\n"):
-    #                 prompt += "\n"
-    #             if not prompt.strip().endswith(f"{system_role}:"):
-    #                 prompt = f"{prompt}{system_role}: "
-    #         else:
-    #             prompt = f"{system_role}: "
-    #         preference_examples.append(
-    #             PreferenceExample(
-    #                 prompt=prompt,
-    #                 chosen=f" {chosen}",
-    #                 rejected=f" {rejected}",
-    #                 dialog_id=str(rec.get("did", idx)),
-    #                 turn_index=int(rec.get("turn_index", idx)),
-    #             )
-    #         )
-    #     if not preference_examples:
-    #         raise ValueError("No valid preference pairs with ori/new responses found in dataset.")
-    #     return preference_examples
-
-    conversation_examples = build_examples(
-        records,
-        system_field=system_field,
-        user_field=user_field,
-        system_role=system_role,
-        user_role=user_role,
-    )
-    if len(conversation_examples) < 2:
-        raise ValueError("Need at least two conversation examples to build preference pairs for DPO.")
-
-    pool = [ex.completion for ex in conversation_examples]
-    if len(set(pool)) < 2:
-        raise ValueError("Preference pool contains only one unique completion; cannot form rejected samples.")
-
-    by_dialog: Dict[str, List[ConversationExample]] = {}
-    for example in conversation_examples:
-        by_dialog.setdefault(example.dialog_id, []).append(example)
-
-    used_rejection_counts: Dict[str, int] = defaultdict(int)
-
-    def normalize_text(text: str) -> str:
-        return " ".join(text.split()).lower()
-
-    def pick_rejected(example: ConversationExample) -> str:
-        # Prefer negatives from the same dialogue to keep context mismatch realistic.
-        in_dialog_candidates = [
-            candidate.completion
-            for candidate in by_dialog.get(example.dialog_id, [])
-            if candidate.turn_index != example.turn_index
-        ]
-        cross_dialog_candidates = [
-            candidate.completion
-            for candidate in conversation_examples
-            if candidate.dialog_id != example.dialog_id
-        ]
-        candidate_sets = [in_dialog_candidates, cross_dialog_candidates]
-        chosen_norm = normalize_text(example.completion)
-        for candidates in candidate_sets:
-            if not candidates:
-                continue
-            unique_ordered = list(dict.fromkeys(candidates))
-            local_valid: List[Tuple[int, str, str]] = []
-            for rejected in unique_ordered:
-                rejected_norm = normalize_text(rejected)
-                if not rejected_norm or rejected_norm == chosen_norm:
-                    continue
-                similarity = SequenceMatcher(None, example.completion, rejected).ratio()
-                if similarity >= 0.95:
-                    continue
-                usage = used_rejection_counts[rejected_norm]
-                local_valid.append((usage, rejected, rejected_norm))
-            if local_valid:
-                min_usage = min(item[0] for item in local_valid)
-                reservoir = [item for item in local_valid if item[0] == min_usage]
-                _, selected_text, selected_norm = rng.choice(reservoir)
-                used_rejection_counts[selected_norm] += 1
-                return selected_text
-        return ""
-
-    preference_examples: List[PreferenceExample] = []
-    for example in conversation_examples:
-        rejected = pick_rejected(example)
-        if not rejected:
-            continue
-        preference_examples.append(
-            PreferenceExample(
-                prompt=example.prompt,
-                chosen=example.completion,
-                rejected=rejected,
-                dialog_id=example.dialog_id,
-                turn_index=example.turn_index,
-            )
-        )
-    if not preference_examples:
-        raise ValueError("Failed to generate any preference examples; try adjusting dataset or sampling strategy.")
-    return preference_examples
 
 
 class ConversationDataset(Dataset):
@@ -347,13 +235,6 @@ class ConversationDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         example = self.data[index]
         return self._encode_pair(example.prompt, example.completion)
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> AutoModelForCausalLM:
@@ -423,7 +304,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    set_seed(args.seed)
 
     if args.output_dir is None:
         auto_dir = f"outputs/{args.model_name.replace('/', '_')}-{args.algorithm}"
@@ -491,6 +371,8 @@ def main() -> None:
             save_total_limit=args.save_total_limit,
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
+            ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
+            gradient_checkpointing=True,        # nếu bật ở trên
             # 🔧 tránh treo do DataLoader
             # dataloader_num_workers=0,           # debug/stable nhất
             # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
