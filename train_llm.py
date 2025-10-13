@@ -283,6 +283,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user-role", type=str, default="Persuadee", help="Role label for user turns.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--fp16", action="store_true", help="Use mixed precision if available.")
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing (disables use_cache automatically).",
+    )
     parser.add_argument("--logging-steps", type=int, default=25, help="Trainer logging frequency.")
     parser.add_argument("--save-total-limit", type=int, default=2, help="Max number of saved checkpoints.")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="Inverse temperature for the DPO loss.")
@@ -317,6 +322,13 @@ def main() -> None:
         model.config.pad_token_id = tokenizer.pad_token_id
 
     model = maybe_wrap_lora(model, args)
+    if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+        if hasattr(model, "config"):
+            model.config.use_cache = False
 
     max_positions = getattr(model.config, "max_position_embeddings", args.max_length)
     effective_max_length = min(args.max_length, max_positions)
@@ -371,7 +383,7 @@ def main() -> None:
             fp16=args.fp16 and torch.cuda.is_available(),
             ddp_backend="nccl",
             ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
-            gradient_checkpointing=True,        # nếu bật ở trên
+            gradient_checkpointing=args.gradient_checkpointing,
             # 🔧 tránh treo do DataLoader
             # dataloader_num_workers=0,           # debug/stable nhất
             # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
@@ -481,7 +493,7 @@ def main() -> None:
             beta=args.dpo_beta,
             max_length=effective_max_length,
             max_prompt_length=min(effective_max_length, args.max_length),
-            gradient_checkpointing=False,
+            gradient_checkpointing=args.gradient_checkpointing,
             do_train=True,
             do_eval=do_eval,
         )

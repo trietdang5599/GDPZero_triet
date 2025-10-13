@@ -23,6 +23,7 @@ LORA_R="${LORA_R:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-0}"
@@ -151,6 +152,10 @@ if [[ "${USE_LORA}" != "0" ]]; then
 		--lora-target-modules "${LORA_TARGET_MODULES}"
 	)
 fi
+GRADIENT_ARGS=()
+if [[ "${GRADIENT_CHECKPOINTING}" != "0" ]]; then
+	GRADIENT_ARGS+=(--gradient-checkpointing)
+fi
 
 echo "[2/3] Running supervised fine-tuning ..."
 run_training \
@@ -164,6 +169,7 @@ run_training \
   --learning-rate 2e-5 \
   --max-length 512 \
   "${LORA_ARGS[@]}" \
+  "${GRADIENT_ARGS[@]}" \
   "$@"
 
 echo "[3/3] Running DPO preference optimization..."
@@ -180,6 +186,7 @@ run_training \
   --max-length 512 \
   --dpo-beta 0.1 \
   "${LORA_ARGS[@]}" \
+  "${GRADIENT_ARGS[@]}" \
   "$@"
 
 echo "Training pipeline complete."
