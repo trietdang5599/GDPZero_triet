@@ -16,11 +16,13 @@ from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.model_factory import create_factor_llm
 from core.helpers import DialogSession
+from core.PersuadeePlanner import PersuadeeHeuristicPlanner
 from utils.utils import dotdict, set_determinitic_seed
 from utils.prompt_examples import EXP_DIALOG
 
 
 logger = logging.getLogger(__name__)
+
 
 
 def simulate_dialog(
@@ -29,34 +31,40 @@ def simulate_dialog(
 	mcts_cfg: dotdict,
 	num_mcts_sims: int,
 	max_turns: int,
+	user_mode: str,
+	classify_user_act: bool,
+	user_planner: PersuadeeHeuristicPlanner | None = None,
 ) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
 
-	default_sys_da = (
-		PersuasionGame.S_Greeting
-		if PersuasionGame.S_Greeting in game.system_agent.dialog_acts
-		else game.system_agent.dialog_acts[0]
-	)
-	default_usr_da = (
-		PersuasionGame.U_Neutral
-		if PersuasionGame.U_Neutral in game.user_agent.dialog_acts
-		else game.user_agent.dialog_acts[0]
-	)
-	default_sys_utt = "Hello there! How are you doing today?"
-	default_usr_utt = "I'm doing well, thanks. What's this about?"
-	state.add_single(PersuasionGame.SYS, default_sys_da, default_sys_utt)
-	state.add_single(PersuasionGame.USR, default_usr_da, default_usr_utt)
-	conversation.append(
-		{
-			"turn": 0,
-			"action_index": None,
-			"system_dialog_act": default_sys_da,
-			"system_utterance": default_sys_utt,
-			"user_dialog_act": default_usr_da,
-			"user_utterance": default_usr_utt,
-		}
-	)
+	# seed with a default opening exchange so heuristics expecting a user turn work
+	if len(state.history) == 0:
+		default_sys_da = (
+			PersuasionGame.S_Greeting
+			if PersuasionGame.S_Greeting in game.system_agent.dialog_acts
+			else game.system_agent.dialog_acts[0]
+		)
+		default_sys_utt = "Hello there! How are you doing today?"
+		default_usr_da = (
+			PersuasionGame.U_Neutral
+			if PersuasionGame.U_Neutral in game.user_agent.dialog_acts
+			else game.user_agent.dialog_acts[0]
+		)
+		default_usr_utt = "I'm doing well. What's this about?"
+		state.add_single(PersuasionGame.SYS, default_sys_da, default_sys_utt)
+		state.add_single(PersuasionGame.USR, default_usr_da, default_usr_utt)
+		conversation.append(
+			{
+				"turn": 0,
+				"action_index": None,
+				"system_dialog_act": default_sys_da,
+				"system_utterance": default_sys_utt,
+				"user_selected_act": None,
+				"user_dialog_act": default_usr_da,
+				"user_utterance": default_usr_utt,
+			}
+		)
 
 	for turn_idx in range(max_turns):
 		final_outcome = game.get_dialog_ended(state)
@@ -69,10 +77,22 @@ def simulate_dialog(
 
 		action_prob = dialog_planner.get_action_prob(state)
 		best_action = int(np.argmax(action_prob))
+		sys_da = game.system_agent.dialog_acts[best_action]
+		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
+		state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
 
-		next_state = game.get_next_state(state, best_action)
-		sys_role, sys_da, sys_utt = next_state.history[-2]
-		usr_role, usr_da, usr_utt = next_state.history[-1]
+		user_selected_act = None
+		if user_mode in {"planner", "hybrid"} and user_planner is not None:
+			user_selected_act = user_planner.select_action(state)
+
+		user_da, user_utt = game.user_agent.get_utterance_w_da(
+			state,
+			action=user_selected_act,
+			classify=classify_user_act or user_mode == "hybrid",
+		)
+		if user_mode in {"planner", "hybrid"} and user_selected_act and user_da == PersuasionGame.U_Neutral:
+			user_da = user_selected_act
+		state.add_single(PersuasionGame.USR, user_da, user_utt)
 
 		conversation.append(
 			{
@@ -80,12 +100,14 @@ def simulate_dialog(
 				"action_index": best_action,
 				"system_dialog_act": sys_da,
 				"system_utterance": sys_utt,
-				"user_dialog_act": usr_da,
-				"user_utterance": usr_utt,
+				"user_selected_act": user_selected_act,
+				"user_dialog_act": user_da,
+				"user_utterance": user_utt,
 			}
 		)
 
-		state = next_state
+		if user_da == PersuasionGame.U_Donate:
+			break
 
 	final_outcome = game.get_dialog_ended(state)
 	return {
@@ -152,6 +174,24 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum dialog turns before forcing termination.",
 	)
 	parser.add_argument(
+		"--user-mode",
+		type=str,
+		choices=["llm", "planner", "hybrid"],
+		default="llm",
+		help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
+	)
+	parser.add_argument(
+		"--classify-user-act",
+		action="store_true",
+		help="Run an auxiliary classification step to assign persuadee dialog acts.",
+	)
+	parser.add_argument(
+		"--planner-donate-prob",
+		type=float,
+		default=0.4,
+		help="Base probability for the heuristic planner to select donate when faced with a donation proposition.",
+	)
+	parser.add_argument(
 		"--seed",
 		type=int,
 		default=42,
@@ -169,7 +209,7 @@ def parse_args() -> argparse.Namespace:
 		type=Path,
 		default=None,
 		help="Optional path to save simulation transcripts (JSONL).",
-	)
+ 	)
 	return parser.parse_args()
 
 
@@ -204,7 +244,7 @@ def main() -> None:
 		ontology["user"]["dialog_acts"],
 		inference_args={
 			"max_new_tokens": 128,
-			"temperature": 0.6,
+			"temperature": 0.4,
 			"do_sample": True,
 			"return_full_text": False,
 		},
@@ -220,6 +260,14 @@ def main() -> None:
 		conv_examples=[],
 	)
 	game = PersuasionGame(system, user)
+
+	user_planner = None
+	if args.user_mode in {"planner", "hybrid"}:
+		user_planner = PersuadeeHeuristicPlanner(
+			user.dialog_acts,
+			donate_prob=args.planner_donate_prob,
+			seed=args.seed,
+		)
 
 	mcts_cfg = dotdict(
 		{
@@ -239,6 +287,9 @@ def main() -> None:
 			mcts_cfg,
 			args.num_mcts_sims,
 			args.max_turns,
+			user_mode=args.user_mode,
+			classify_user_act=args.classify_user_act,
+			user_planner=user_planner,
 		)
 		results.append(sim_result)
 		for turn in sim_result["turns"]:
