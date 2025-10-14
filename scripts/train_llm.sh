@@ -103,6 +103,13 @@ echo "GPUs requested    : ${NUM_GPUS}"
 [[ -f "${DATASET_PATH}" ]] || { echo "Dataset not found at ${DATASET_PATH}" >&2; exit 1; }
 mkdir -p "$(dirname "${PREF_PATH}")" "${SFT_OUTPUT}" "${DPO_OUTPUT}"
 
+if [[ -n "$(ls -A "${SFT_OUTPUT}" 2>/dev/null)" ]]; then
+	echo "[warn] SFT checkpoint directory ${SFT_OUTPUT} is not empty. Skipping SFT step."
+	SKIP_SFT=1
+else
+	SKIP_SFT=0
+fi
+
 if [[ ! -f "${PREF_PATH}" ]]; then
 echo "[1/3] Building preference dataset..."
 "${PYTHON_BIN}" "${REPO_ROOT}/runners/generate_preference_pairs.py" \
@@ -157,20 +164,24 @@ if [[ "${GRADIENT_CHECKPOINTING}" != "0" ]]; then
 	GRADIENT_ARGS+=(--gradient-checkpointing)
 fi
 
-echo "[2/3] Running supervised fine-tuning ..."
-run_training \
-  --algorithm sft \
-  --dataset-path "${DATASET_PATH}" \
-  --model-name "${MODEL_NAME}" \
-  --output-dir "${SFT_OUTPUT}" \
-  --batch-size 4 \
-  --gradient-accumulation 16 \
-  --num-train-epochs 10 \
-  --learning-rate 2e-5 \
-  --max-length 512 \
-  "${LORA_ARGS[@]}" \
-  "${GRADIENT_ARGS[@]}" \
-  "$@"
+if (( SKIP_SFT == 0 )); then
+	echo "[2/3] Running supervised fine-tuning ..."
+	run_training \
+	  --algorithm sft \
+	  --dataset-path "${DATASET_PATH}" \
+	  --model-name "${MODEL_NAME}" \
+	  --output-dir "${SFT_OUTPUT}" \
+	  --batch-size 4 \
+	  --gradient-accumulation 16 \
+	  --num-train-epochs 10 \
+	  --learning-rate 2e-5 \
+	  --max-length 512 \
+	  "${LORA_ARGS[@]}" \
+	  "${GRADIENT_ARGS[@]}" \
+	  "$@"
+else
+	echo "[2/3] Supervised fine-tuning skipped (checkpoint already present)."
+fi
 
 echo "[3/3] Running DPO preference optimization..."
 run_training \
