@@ -204,7 +204,7 @@ def main() -> None:
 		ontology["user"]["dialog_acts"],
 		inference_args={
 			"max_new_tokens": 128,
-			"temperature": 0.9,
+			"temperature": 0.6,
 			"do_sample": True,
 			"return_full_text": False,
 		},
