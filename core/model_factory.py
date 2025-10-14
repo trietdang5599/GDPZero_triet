@@ -22,9 +22,13 @@ def create_factor_llm(cmd_args):
 		SysPlanner = P4GChatSystemPlanner
 	elif cmd_args.llm == "gpt2":
 		model_source = cmd_args.local_model_path or "gpt2"
+		model_kwargs = {}
+		if getattr(cmd_args, "local_base_model", ""):
+			model_kwargs["base_model_name_or_path"] = cmd_args.local_base_model
 		backbone_model = LocalModel(
 			model_source,
 			trust_remote_code=cmd_args.local_trust_remote_code,
+			model_kwargs=model_kwargs or None,
 		)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
@@ -45,9 +49,13 @@ def create_factor_llm(cmd_args):
 	elif cmd_args.llm == "local":
 		if not cmd_args.local_model_path:
 			raise ValueError("--local-model-path is required when --llm local")
+		model_kwargs = {}
+		if getattr(cmd_args, "local_base_model", ""):
+			model_kwargs["base_model_name_or_path"] = cmd_args.local_base_model
 		backbone_model = LocalModel(
 			cmd_args.local_model_path,
 			trust_remote_code=cmd_args.local_trust_remote_code,
+			model_kwargs=model_kwargs or None,
 		)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel

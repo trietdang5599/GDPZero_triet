@@ -16,6 +16,7 @@ from core.helpers import DialogSession
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt,	wait_exponential, wait_fixed  # for exponential backoff
 from utils.utils import hashabledict
+from peft import PeftModel
 
 
 logger = logging.getLogger(__name__)
@@ -448,21 +449,50 @@ class LocalModel(GenerationModel):
 		self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 		self.cuda = self.device.type == "cuda"
 		load_kwargs = model_kwargs.copy() if model_kwargs else {}
+		base_model_name = load_kwargs.pop("base_model_name_or_path", None)
+		adapter_path = Path(model_name)
+		is_adapter = adapter_path.exists() and (adapter_path / "adapter_config.json").exists()
+		if is_adapter:
+			if base_model_name is None:
+				raise ValueError(
+					"Detected a PEFT/LoRA adapter at %s but no base model was provided. "
+					"Set --local-base-model when running GDPZero."
+					% model_name
+				)
+			tokenizer_source = base_model_name
+		else:
+			tokenizer_source = model_name
+
 		self.tokenizer = AutoTokenizer.from_pretrained(
-			model_name,
+			tokenizer_source,
 			truncation_side="left",
 			trust_remote_code=trust_remote_code,
 		)
 		if self.tokenizer.pad_token is None:
 			self.tokenizer.pad_token = self.tokenizer.eos_token
-		self.model = AutoModelForCausalLM.from_pretrained(
-			model_name,
-			trust_remote_code=trust_remote_code,
-       		torch_dtype=torch.bfloat16,
-    		device_map=None,
-			**load_kwargs,
 
-		)
+		if is_adapter:
+			base_model = AutoModelForCausalLM.from_pretrained(
+				tokenizer_source,
+				trust_remote_code=trust_remote_code,
+				torch_dtype=torch.bfloat16,
+				device_map=None,
+				**load_kwargs,
+			)
+			peft_model = PeftModel.from_pretrained(base_model, model_name)
+			try:
+				self.model = peft_model.merge_and_unload()
+			except Exception as exc:
+				logger.warning("Failed to merge LoRA adapter, using PEFT wrapper directly: %s", exc)
+				self.model = peft_model
+		else:
+			self.model = AutoModelForCausalLM.from_pretrained(
+				model_name,
+				trust_remote_code=trust_remote_code,
+				torch_dtype=torch.bfloat16,
+				device_map=None,
+				**load_kwargs,
+			)
 		self.model.to(self.device)
 		self.model.eval()
 		self.model.config.pad_token_id = self.tokenizer.pad_token_id

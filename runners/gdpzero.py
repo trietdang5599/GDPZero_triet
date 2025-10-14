@@ -230,7 +230,8 @@ if __name__ == "__main__":
 	parser.add_argument('--num_dialogs', type=int, default=100, help='number of dialogs to test MCTS on')
 	parser.add_argument('--debug', action='store_true', help='debug mode')
 	parser.add_argument('--log-level', type=str, default='INFO', choices=['CRITICAL','ERROR','WARNING','INFO','DEBUG','NOTSET'], help='Logging level for terminal output.')
-	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model to load when using --llm gpt2 or --llm local.')
+	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model or adapter to load when using --llm gpt2 or --llm local.')
+	parser.add_argument('--local-base-model', type=str, default='', help='Base model identifier to pair with a local adapter (e.g., Qwen/Qwen2.5-0.5B-Instruct).')
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
 	cmd_args = parser.parse_args()
 
