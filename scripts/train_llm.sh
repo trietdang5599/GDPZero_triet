@@ -125,28 +125,29 @@ fi
 
 run_training () {
 	if (( NUM_GPUS >= 1 )); then
-		acc_args=(
-			--main_process_port "${MASTER_PORT}"
-			--num_machines 1
-			--num_processes "${NUM_GPUS}"
-			--mixed_precision no
-			--dynamo_backend no
-		)
-		if (( NUM_GPUS >= 2 )); then
-			acc_args+=(--multi_gpu)
+		if (( NUM_GPUS == 1 )); then
+			"${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
+		else
+			acc_args=(
+				--main_process_port "${MASTER_PORT}"
+				--num_machines 1
+				--num_processes "${NUM_GPUS}"
+				--mixed_precision no
+				--dynamo_backend no
+				--multi_gpu
+			)
+			if [[ -n "${ACCELERATE_CONFIG:-}" ]]; then
+				acc_args+=(--config_file "${ACCELERATE_CONFIG}")
+			fi
+			if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+				acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
+			fi
+			"${ACCELERATE_BIN}" launch "${acc_args[@]}" "${REPO_ROOT}/train_llm.py" "$@"
 		fi
-		if [[ -n "${ACCELERATE_CONFIG:-}" ]]; then
-			acc_args+=(--config_file "${ACCELERATE_CONFIG}")
-		fi
-		if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-			acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
-		fi
-		"${ACCELERATE_BIN}" launch "${acc_args[@]}" "${REPO_ROOT}/train_llm.py" "$@"
 	else
-		# CPU fallback
 		echo "[warn] No CUDA GPUs detected. Running on CPU."
 		"${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-fi
+	fi
 }
 
 LORA_ARGS=()
