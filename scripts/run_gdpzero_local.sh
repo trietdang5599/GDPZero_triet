@@ -17,9 +17,26 @@ OUTPUT_PREFIX="${OUTPUT_DIR}/gdpzero_${MODEL_NAME_SAFE}_local"
 EVAL_DIR="${OUTPUT_DIR}/evaluation"
 JUDGE="${JUDGE:-Qwen/Qwen2.5-0.5B-Instruct}"
 
+case "${MODEL_NAME_SAFE}" in
+    qwen2.5-0.5b)
+        DEFAULT_BASE_MODEL="Qwen/Qwen2.5-0.5B-Instruct"
+        ;;
+    qwen2.5-7b)
+        DEFAULT_BASE_MODEL="Qwen/Qwen2.5-7B-Instruct"
+        ;;
+    llamda-3-8b)
+        DEFAULT_BASE_MODEL="meta-llama/Meta-Llama-3-8B-Instruct"
+        ;;
+    *)
+        DEFAULT_BASE_MODEL="${MODEL_NAME}"
+        ;;
+esac
+BASE_MODEL_PATH="${BASE_MODEL_PATH:-${DEFAULT_BASE_MODEL}}"
+
 echo "Running GDPZero for simulation counts: ${SIM_COUNTS[*]}"
 echo "Using python executable: ${PYTHON_BIN}"
 echo "Using local model path: ${MODEL_PATH}"
+echo "Using base model: ${BASE_MODEL_PATH}"
 echo "Using judge model: ${JUDGE}"
 
 if [[ ! -d "${MODEL_PATH}" ]]; then
@@ -37,6 +54,7 @@ for sims in "${SIM_COUNTS[@]}"; do
 	"${PYTHON_BIN}" "${REPO_ROOT}/runners/gdpzero.py" \
 		--llm local \
 		--local-model-path "${MODEL_PATH}" \
+		--local-base-model "${BASE_MODEL_PATH}" \
 		--output "${output_file}" \
 		--num_mcts_sims "${sims}" \
 		--num_dialogs 30 \
