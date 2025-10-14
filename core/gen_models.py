@@ -17,6 +17,7 @@ from functools import lru_cache
 from tenacity import retry, stop_after_attempt,	wait_exponential, wait_fixed  # for exponential backoff
 from utils.utils import hashabledict
 from peft import PeftModel
+from safetensors.torch import load_file as safe_load_file
 
 
 logger = logging.getLogger(__name__)
@@ -456,8 +457,7 @@ class LocalModel(GenerationModel):
 			if base_model_name is None:
 				raise ValueError(
 					"Detected a PEFT/LoRA adapter at %s but no base model was provided. "
-					"Set --local-base-model when running GDPZero."
-					% model_name
+					"Set --local-base-model when running GDPZero." % model_name
 				)
 			tokenizer_source = base_model_name
 		else:
@@ -479,6 +479,26 @@ class LocalModel(GenerationModel):
 				device_map=None,
 				**load_kwargs,
 			)
+			adapter_state = None
+			adapter_file = adapter_path / "adapter_model.safetensors"
+			if adapter_file.exists():
+				adapter_state = safe_load_file(str(adapter_file))
+			else:
+				adapter_file = adapter_path / "adapter_model.bin"
+				if adapter_file.exists():
+					adapter_state = torch.load(adapter_file, map_location="cpu")
+			if adapter_state:
+				embed_key = next((k for k in adapter_state.keys() if k.endswith("embed_tokens.weight")), None)
+				if embed_key:
+					adapter_vocab_size = adapter_state[embed_key].shape[0]
+					base_vocab_size = base_model.get_input_embeddings().num_embeddings
+					if adapter_vocab_size != base_vocab_size:
+						logger.warning(
+							"Resizing base model embeddings from %s to %s to match adapter",
+							base_vocab_size,
+							adapter_vocab_size,
+						)
+						base_model.resize_token_embeddings(adapter_vocab_size)
 			peft_model = PeftModel.from_pretrained(base_model, model_name)
 			try:
 				self.model = peft_model.merge_and_unload()
