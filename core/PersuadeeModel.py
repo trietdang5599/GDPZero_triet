@@ -23,11 +23,13 @@ class PersuadeeModel(DialogModel):
 		self.dialog_acts = dialog_acts
 		self.max_hist_num_turns = max_hist_num_turns
 		# prompts
+		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
 		The following is background information about task. 
 		The Persuader is trying to persuade the Persuadee to donate to Save the Children.
+		You must always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
-		{" ".join([f"[{da}]" for da in self.dialog_acts])}
+		{dialog_act_list}
 		The following is an example conversation between a Persuader and a Persuadee about a charity called Save the Children.
 		{self.process_exp()}
 		The following is a new conversation between another Persuader and Persuadee.
@@ -85,13 +87,19 @@ class PersuadeeChatModel(PersuadeeModel):
 			max_hist_num_turns=max_hist_num_turns
 		)
 		self.inference_args = inference_args
+		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
 		You are a persuadee. A Persuader is trying to persuade you to donate to a charity called Save the Children.
-		You can choose amongst the following actions during a conversation to respond to the Persuader:
-		{" ".join([f"[{da}]" for da in self.dialog_acts])}
+		You must always answer in the format `[dialog_act] utterance`, choosing `dialog_act` from: {dialog_act_list}.
+		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
+		{dialog_act_list}
 		The following is an example conversation between a Persuader and some Persuadee.
 		""".replace("\t", "").strip()
-		self.new_task_prompt = "The following is a new conversation between a Persuader and a Persuadee (you). You may or may not want to donate to Save the Children."
+		self.new_task_prompt = (
+			"The following is a new conversation between a Persuader and a Persuadee (you). "
+			"You may or may not want to donate to Save the Children. "
+			"Remember to reply only in the format `[dialog_act] utterance`."
+		)
 		self.heuristic_args: dict = {
 			"max_hist_num_turns": 2,
 			"example_pred_turn": [[0, 2, 3, 4]]
@@ -296,4 +304,3 @@ __all__ = [
 	"PersuadeeModel",
 	"PersuadeeChatModel",
 ]
-
