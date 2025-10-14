@@ -9,7 +9,7 @@ import inspect
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import os
 import torch
 from torch.utils.data import Dataset
@@ -158,8 +158,17 @@ def build_examples(
 # issue might be here
 def build_preference_examples(
     records: Iterable[Dict[str, Any]],
+    *,
+    system_field: str,
+    user_field: str,
+    system_role: str,
+    user_role: str,
+    rng: Optional[random.Random],
+    num_negatives: int = 1,
 ) -> List[PreferenceExample]:
     records = list(records)
+    if rng is None:
+        rng = random.Random()
     direct_pairs = [
         rec for rec in records if "prompt" in rec and "chosen" in rec and "rejected" in rec
     ]
@@ -185,7 +194,42 @@ def build_preference_examples(
         return preference_examples
     else:
         print("No direct preference pairs found; constructing from conversation examples.")
-        return 
+
+    conversation_examples = build_examples(
+        records,
+        system_field=system_field,
+        user_field=user_field,
+        system_role=system_role,
+        user_role=user_role,
+    )
+    if len(conversation_examples) < 2:
+        raise ValueError("Need at least two conversation examples to build preference pairs for DPO.")
+
+    pool = [ex.completion for ex in conversation_examples]
+    unique_pool = list(dict.fromkeys(pool))
+    if len(unique_pool) < 2:
+        raise ValueError("Preference pool contains only one unique completion; cannot form rejected samples.")
+
+    preference_examples: List[PreferenceExample] = []
+    for example in conversation_examples:
+        candidates = [cand for cand in unique_pool if cand != example.completion]
+        if not candidates:
+            continue
+        for _ in range(max(1, num_negatives)):
+            rejected = rng.choice(candidates)
+            preference_examples.append(
+                PreferenceExample(
+                    prompt=example.prompt,
+                    chosen=example.completion,
+                    rejected=rejected,
+                    dialog_id=example.dialog_id,
+                    turn_index=example.turn_index,
+                )
+            )
+
+    if not preference_examples:
+        raise ValueError("Failed to generate any preference examples; try adjusting dataset or sampling strategy.")
+    return preference_examples
 
 
 class ConversationDataset(Dataset):
@@ -277,6 +321,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-ratio", type=float, default=0.03, help="Linear warmup ratio.")
     parser.add_argument("--validation-ratio", type=float, default=0.1, help="Fraction of samples reserved for validation.")
     parser.add_argument("--max-samples", type=int, default=0, help="Optional cap on total samples (0 = use all).")
+    parser.add_argument("--num-negatives", type=int, default=1, help="Number of rejected completions to sample per positive example when synthesizing preference pairs.")
     parser.add_argument("--system-field", type=str, default="er", help="Field name for system utterances in the dataset.")
     parser.add_argument("--user-field", type=str, default="ee", help="Field name for user utterances in the dataset.")
     parser.add_argument("--system-role", type=str, default="Persuader", help="Role label for system turns.")
@@ -437,6 +482,7 @@ def main() -> None:
             system_role=args.system_role,
             user_role=args.user_role,
             rng=rng,
+            num_negatives=args.num_negatives,
         )
         if not pref_examples:
             raise ValueError("No preference examples constructed from dataset.")
