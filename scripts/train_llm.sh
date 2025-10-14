@@ -201,7 +201,7 @@ run_training \
   --output-dir "${DPO_OUTPUT}" \
   --batch-size 4 \
   --gradient-accumulation 16 \
-  --num-train-epochs 2 \
+  --num-train-epochs 10 \
   --learning-rate 1e-5 \
   --max-length 512 \
   --dpo-beta 0.1 \
