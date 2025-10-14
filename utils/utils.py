@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 import random
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
@@ -11,6 +12,8 @@ import torch
 from core.helpers import DialogSession
 
 def set_determinitic_seed(seed):
+	if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
+		os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 	random.seed(seed)
 	np.random.seed(seed)
 	torch.manual_seed(seed)
