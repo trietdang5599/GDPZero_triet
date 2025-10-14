@@ -132,14 +132,24 @@ run_training () {
 			--mixed_precision no
 			--dynamo_backend no
 		)
+		use_multi=0
 		if (( NUM_GPUS >= 2 )); then
+			use_multi=1
 			acc_args+=(--multi_gpu)
+			if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+				if [[ "${CUDA_VISIBLE_DEVICES}" == "all" ]]; then
+					acc_args+=(--gpu_ids all)
+				elif [[ "${CUDA_VISIBLE_DEVICES}" == *,* ]]; then
+					acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
+				else
+					acc_args+=(--gpu_ids all)
+				fi
+			else
+				acc_args+=(--gpu_ids all)
+			fi
 		fi
 		if [[ -n "${ACCELERATE_CONFIG:-}" ]]; then
 			acc_args+=(--config_file "${ACCELERATE_CONFIG}")
-		fi
-		if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-			acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
 		fi
 		"${ACCELERATE_BIN}" launch "${acc_args[@]}" "${REPO_ROOT}/train_llm.py" "$@"
 	else
