@@ -34,16 +34,27 @@ def _build_agents_and_game(args):
     usr_das = ontology["user"]["dialog_acts"]
 
     # Persuader / Persuadee models (NLG)
-    persuader = SysModel(dialog_acts=sys_das, backbone_model=backbone_model,
-                         max_hist_num_turns=args.max_hist, conv_examples=[],
-                         inference_args={})
+    # Enable sampling for Persuader so OpenLoop MCTS can cache
+    # multiple realizations per action and produce preference pairs.
+    persuader = SysModel(
+        dialog_acts=sys_das,
+        backbone_model=backbone_model,
+        max_hist_num_turns=2,
+        conv_examples=[],
+        inference_args={
+            "max_new_tokens": 128,
+            "temperature": 0.7,
+            "do_sample": True,
+            "return_full_text": False,
+        },
+    )
     persuadee = UsrModel(dialog_acts=usr_das, backbone_model=backbone_model,
-                         max_hist_num_turns=args.max_hist_user, conv_examples=[],
-                         inference_args={"max_new_tokens": 64, "temperature": 0.7})
+                         max_hist_num_turns=2, conv_examples=[],
+                         inference_args={"max_new_tokens": 64, "temperature": 0.0})
 
     # Planner (policy & value/heuristic)
-    planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=args.max_hist,
-                         user_dialog_acts=usr_das, user_max_hist_num_turns=args.max_hist_user,
+    planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=2,
+                         user_dialog_acts=usr_das, user_max_hist_num_turns=2,
                          generation_model=backbone_model, conv_examples=[])
     
     persuadee_planner = None
@@ -179,19 +190,19 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--num-dialogs",
 		type=int,
-		default=1,
+		default=5,
 		help="Number of simulations to run.",
 	)
 	parser.add_argument(
 		"--num-mcts-sims",
 		type=int,
-		default=20,
+		default=10,
 		help="Number of MCTS simulations per turn.",
 	)
 	parser.add_argument(
 		"--max-realizations",
 		type=int,
-		default=3,
+		default=5,
 		help="Maximum realizations tracked per state for OpenLoopMCTS.",
 	)
 	parser.add_argument(
