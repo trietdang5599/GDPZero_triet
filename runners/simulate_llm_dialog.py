@@ -50,7 +50,7 @@ def _build_agents_and_game(args):
     )
     persuadee = UsrModel(dialog_acts=usr_das, backbone_model=backbone_model,
                          max_hist_num_turns=2, conv_examples=[],
-                         inference_args={"max_new_tokens": 64, "temperature": 0.0})
+                         inference_args={"max_new_tokens": 64, "temperature": 0.1})
 
     # Planner (policy & value/heuristic)
     planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=2,
