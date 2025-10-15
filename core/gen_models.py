@@ -16,6 +16,8 @@ from core.helpers import DialogSession
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt,	wait_exponential, wait_fixed  # for exponential backoff
 from utils.utils import hashabledict
+from peft import PeftModel
+from safetensors.torch import load_file as safe_load_file
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ _load_env_vars()
 def _get_openai_client(api_key: str) -> OpenAI:
 	if not api_key:
 		raise ValueError("OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
+	logging.getLogger("httpx").setLevel(logging.WARNING)
 	return OpenAI(api_key=api_key)
 
 
@@ -67,6 +70,7 @@ def _get_azure_openai_client(api_key: str, endpoint: str, api_version: str) -> A
 		raise ValueError("MS_OPENAI_API_KEY is not set; please configure it in the environment or .env file.")
 	if not endpoint:
 		raise ValueError("MS_OPENAI_API_BASE is not set; please configure it in the environment or .env file.")
+	logging.getLogger("httpx").setLevel(logging.WARNING)
 	return AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
 
 
@@ -446,21 +450,69 @@ class LocalModel(GenerationModel):
 		self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 		self.cuda = self.device.type == "cuda"
 		load_kwargs = model_kwargs.copy() if model_kwargs else {}
+		base_model_name = load_kwargs.pop("base_model_name_or_path", None)
+		adapter_path = Path(model_name)
+		is_adapter = adapter_path.exists() and (adapter_path / "adapter_config.json").exists()
+		if is_adapter:
+			if base_model_name is None:
+				raise ValueError(
+					"Detected a PEFT/LoRA adapter at %s but no base model was provided. "
+					"Set --local-base-model when running GDPZero." % model_name
+				)
+			tokenizer_source = base_model_name
+		else:
+			tokenizer_source = model_name
+
 		self.tokenizer = AutoTokenizer.from_pretrained(
-			model_name,
+			tokenizer_source,
 			truncation_side="left",
 			trust_remote_code=trust_remote_code,
 		)
 		if self.tokenizer.pad_token is None:
 			self.tokenizer.pad_token = self.tokenizer.eos_token
-		self.model = AutoModelForCausalLM.from_pretrained(
-			model_name,
-			trust_remote_code=trust_remote_code,
-       		torch_dtype=torch.bfloat16,
-    		device_map=None,
-			**load_kwargs,
 
-		)
+		if is_adapter:
+			base_model = AutoModelForCausalLM.from_pretrained(
+				tokenizer_source,
+				trust_remote_code=trust_remote_code,
+				torch_dtype=torch.bfloat16,
+				device_map=None,
+				**load_kwargs,
+			)
+			adapter_state = None
+			adapter_file = adapter_path / "adapter_model.safetensors"
+			if adapter_file.exists():
+				adapter_state = safe_load_file(str(adapter_file))
+			else:
+				adapter_file = adapter_path / "adapter_model.bin"
+				if adapter_file.exists():
+					adapter_state = torch.load(adapter_file, map_location="cpu")
+			if adapter_state:
+				embed_key = next((k for k in adapter_state.keys() if k.endswith("embed_tokens.weight")), None)
+				if embed_key:
+					adapter_vocab_size = adapter_state[embed_key].shape[0]
+					base_vocab_size = base_model.get_input_embeddings().num_embeddings
+					if adapter_vocab_size != base_vocab_size:
+						logger.warning(
+							"Resizing base model embeddings from %s to %s to match adapter",
+							base_vocab_size,
+							adapter_vocab_size,
+						)
+						base_model.resize_token_embeddings(adapter_vocab_size)
+			peft_model = PeftModel.from_pretrained(base_model, model_name)
+			try:
+				self.model = peft_model.merge_and_unload()
+			except Exception as exc:
+				logger.warning("Failed to merge LoRA adapter, using PEFT wrapper directly: %s", exc)
+				self.model = peft_model
+		else:
+			self.model = AutoModelForCausalLM.from_pretrained(
+				model_name,
+				trust_remote_code=trust_remote_code,
+				torch_dtype=torch.bfloat16,
+				device_map=None,
+				**load_kwargs,
+			)
 		self.model.to(self.device)
 		self.model.eval()
 		self.model.config.pad_token_id = self.tokenizer.pad_token_id

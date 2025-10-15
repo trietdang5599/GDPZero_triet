@@ -13,14 +13,12 @@ import numpy as np
 
 from tqdm.auto import tqdm
 from core.gen_models import (
-	LocalModel, OpenAIModel, OpenAIChatModel, AzureOpenAIChatModel
+    OpenAIModel
 )
-from core.P4GSystemPlanner import P4GSystemPlanner, P4GChatSystemPlanner
-from core.PersuaderModel import PersuaderModel, PersuaderChatModel
-from core.PersuadeeModel import PersuadeeModel, PersuadeeChatModel
 from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.helpers import DialogSession
+from core.model_factory import create_factor_llm
 from utils.utils import dotdict
 from utils.prompt_examples import EXP_DIALOG
 
@@ -42,50 +40,7 @@ def main(cmd_args):
 
 	exp_1 = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 	
-
-	if cmd_args.llm in ['code-davinci-002']:
-		backbone_model = OpenAIModel(cmd_args.llm)
-		SysModel = PersuaderModel
-		UsrModel = PersuadeeModel
-		SysPlanner = P4GSystemPlanner
-	elif cmd_args.llm in ['gpt-3.5-turbo']:
-		backbone_model = OpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'gpt2':
-		model_source = cmd_args.local_model_path or 'gpt2'
-		backbone_model = LocalModel(model_source, trust_remote_code=cmd_args.local_trust_remote_code)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm in ['qwen2.5-0.5b','qwen2.5-7b', 'llamda-3-8b', 'deepseek-r1']:
-		if cmd_args.llm == 'qwen2.5-7b':
-			model_source = 'Qwen/Qwen2.5-7B-Instruct'
-		elif cmd_args.llm == 'qwen2.5-0.5b':
-			model_source = 'Qwen/Qwen2.5-0.5B-Instruct'
-		elif cmd_args.llm == 'llamda-3-8b':
-			model_source = 'meta-llama/Meta-Llama-3-8B-Instruct'
-		elif cmd_args.llm == 'deepseek-r1':
-			model_source = 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B'
-		backbone_model = LocalModel(model_source, trust_remote_code=True)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'local':
-		if not cmd_args.local_model_path:
-			raise ValueError("--local-model-path is required when --llm local")
-		backbone_model = LocalModel(cmd_args.local_model_path, trust_remote_code=cmd_args.local_trust_remote_code)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	elif cmd_args.llm == 'chatgpt':
-		backbone_model = AzureOpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
-		SysModel = PersuaderChatModel
-		UsrModel = PersuadeeChatModel
-		SysPlanner = P4GChatSystemPlanner
-	else:
-		raise ValueError(f"Unsupported llm: {cmd_args.llm}")
+	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(cmd_args)
 	
 	system = SysModel(
 		sys_da,
@@ -151,6 +106,7 @@ def main(cmd_args):
 		dialog = all_dialogs[did]
 		
 		state = game.init_dialog()
+		donation_success = False
 		for t, turn in enumerate(dialog["dialog"]):
 			if len(turn["ee"]) == 0:  # ended
 				break
@@ -161,21 +117,8 @@ def main(cmd_args):
 			usr_utt = " ".join(turn["ee"]).strip()
 			usr_da = dialog["label"][t]["ee"][-1]
 
-			# map to our dialog act
-			if usr_da == "disagree-donation":
-				usr_da = PersuasionGame.U_NoDonation
-			elif usr_da == "negative-reaction-to-donation":
-				usr_da = PersuasionGame.U_NegativeReaction
-			elif usr_da == "positive-reaction-to-donation":
-				usr_da = PersuasionGame.U_PositiveReaction
-			elif usr_da == "agree-donation":
-				usr_da = PersuasionGame.U_Donate
-			else:
-				usr_da = PersuasionGame.U_Neutral
-
-			# game ended
-			if usr_da == PersuasionGame.U_Donate:
-				break
+			usr_da = PersuasionGame.map_user_da(usr_da)
+			
 
 			# map sys as well
 			sys_utt = " ".join(turn["er"]).strip()
@@ -197,6 +140,16 @@ def main(cmd_args):
 			"""
 			context = context.replace('\t', '').strip()
 
+			if usr_da == PersuasionGame.U_Donate:
+				logger.info(
+					"Dialog %s success: persuadee agreed to donate at turn %s with response: %s",
+					did,
+					t,
+					usr_utt,
+				)
+				donation_success = True
+				break
+
 			# mcts policy
 			if isinstance(backbone_model, OpenAIModel):
 				backbone_model._cached_generate.cache_clear()
@@ -207,6 +160,8 @@ def main(cmd_args):
 
 			mcts_policy = dialog_planner.get_action_prob(state)
 			mcts_policy_next_da = system.dialog_acts[np.argmax(mcts_policy)]
+
+			print("mcts_policy_next_da: ", mcts_policy_next_da)
 
 			# # fetch the generated utterance from simulation
 			mcts_pred_rep = dialog_planner.get_best_realization(state, np.argmax(mcts_policy))
@@ -254,6 +209,9 @@ def main(cmd_args):
 			logger.info("human da: %s", next_sys_da)
 			logger.info("mcts resp: %s", mcts_pred_rep)
 			logger.info("mcts da: %s", mcts_policy_next_da)
+		# final of the game
+		final_outcome = 1.0 if donation_success else game.get_dialog_ended(state)
+		logger.info("Dialog %s final outcome: %s", did, final_outcome)
 		with open(cmd_args.output, "wb") as f:
 			pickle.dump(output, f)
 		num_done += 1
@@ -272,7 +230,8 @@ if __name__ == "__main__":
 	parser.add_argument('--num_dialogs', type=int, default=100, help='number of dialogs to test MCTS on')
 	parser.add_argument('--debug', action='store_true', help='debug mode')
 	parser.add_argument('--log-level', type=str, default='INFO', choices=['CRITICAL','ERROR','WARNING','INFO','DEBUG','NOTSET'], help='Logging level for terminal output.')
-	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model to load when using --llm gpt2 or --llm local.')
+	parser.add_argument('--local-model-path', type=str, default='', help='Path to a local Hugging Face model or adapter to load when using --llm gpt2 or --llm local.')
+	parser.add_argument('--local-base-model', type=str, default='', help='Base model identifier to pair with a local adapter (e.g., Qwen/Qwen2.5-0.5B-Instruct).')
 	parser.add_argument('--local-trust-remote-code', action='store_true', help='Allow executing remote code when loading local Hugging Face model.')
 	cmd_args = parser.parse_args()
 
@@ -295,8 +254,8 @@ if __name__ == "__main__":
 		llm_label = cmd_args.llm
 		model_label = Path(cmd_args.local_model_path).name if cmd_args.local_model_path else "base"
 		cmd_args.output = (
-			f"outputs/gdpzero-{cmd_args.num_mcts_sims}sims-"
-			f"{llm_label}-{model_label}-{cmd_args.Q_0:.2f}Q-{cmd_args.num_dialogs}.pkl"
+			f"outputs/gdpzero_"
+			f"{llm_label}_{model_label}_{cmd_args.num_mcts_sims}sims_{cmd_args.num_dialogs}.pkl"
 		)
 
 	logger.info("Saving to %s", cmd_args.output)

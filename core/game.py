@@ -67,23 +67,16 @@ class DialogGame(ABC):
 		"""returns 0 if not ended, then (in general) 1 if system success, -1 if failure 
 		"""
 		raise NotImplementedError
-
-
+	
 class PersuasionGame(DialogGame):
 	SYS = "Persuader"
 	USR = "Persuadee"
 
-	S_PersonalStory = "personal story"
 	S_CredibilityAppeal = "credibility appeal"
 	S_EmotionAppeal = "emotion appeal"
 	S_PropositionOfDonation = "proposition of donation"
-	S_FootInTheDoor = "foot in the door"
 	S_LogicalAppeal = "logical appeal"
-	S_SelfModeling = "self modeling"
 	S_TaskRelatedInquiry = "task related inquiry"
-	S_SourceRelatedInquiry = "source related inquiry"
-	S_PersonalRelatedInquiry = "personal related inquiry"
-	S_NeutralToInquiry = "neutral to inquiry"
 	S_Greeting = "greeting"
 	S_Other = "other"
 
@@ -104,10 +97,9 @@ class PersuasionGame(DialogGame):
 		return {
 			"system": {
 				"dialog_acts": [
-					PersuasionGame.S_Greeting, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_PersonalStory, PersuasionGame.S_EmotionAppeal,
-					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_FootInTheDoor, PersuasionGame.S_LogicalAppeal,
-					PersuasionGame.S_SelfModeling, PersuasionGame.S_TaskRelatedInquiry, PersuasionGame.S_SourceRelatedInquiry,
-					PersuasionGame.S_PersonalRelatedInquiry, PersuasionGame.S_NeutralToInquiry,
+					PersuasionGame.S_Greeting, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_EmotionAppeal,
+					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_LogicalAppeal,
+					PersuasionGame.S_TaskRelatedInquiry,
 					PersuasionGame.S_Other
 				],
 			},
@@ -120,19 +112,46 @@ class PersuasionGame(DialogGame):
 		}
 
 	def get_dialog_ended(self, state) -> float:
-		# terminate if there is a <donate> action in persudee resp
-		# allow only 10 turns
+		# terminate if there is a <donate> action in persuadee resp
 		if len(state) >= self.max_conv_turns:
-			logger.info("Dialog ended with persuasion failure")
+			logger.debug(
+				"Dialog ended with persuasion failure (reason=max_turns, turns=%s, last_state=%s)",
+				len(state),
+				state[-1] if state else None,
+			)
 			return -1.0
-		for (_, da, _) in state:
+
+		for turn_idx, (role, da, utt) in enumerate(state):
 			if da == PersuasionGame.U_Donate:
-				logger.info("Dialog ended with donate")
+				logger.debug(
+					"Dialog ended with donate (turn=%s, role=%s, utt=%s)",
+					turn_idx,
+					role,
+					utt,
+				)
 				return 1.0
 			if da == PersuasionGame.U_NoDonation:
-				logger.info("Dialog ended with no-donation")
+				logger.debug(
+					"Dialog ended with no-donation (turn=%s, role=%s, utt=%s)",
+					turn_idx,
+					role,
+					utt,
+				)
 				return -1.0
 		return 0.0
+
+	@staticmethod
+	def map_user_da(raw_da: str) -> str:
+		if raw_da == "disagree-donation":
+			return PersuasionGame.U_NoDonation
+		if raw_da == "negative-reaction-to-donation":
+			return PersuasionGame.U_NegativeReaction
+		if raw_da == "positive-reaction-to-donation":
+			return PersuasionGame.U_PositiveReaction
+		if raw_da == "agree-donation":
+			return PersuasionGame.U_Donate
+		return PersuasionGame.U_Neutral
+	
 
 
 class EmotionalSupportGame(PersuasionGame):

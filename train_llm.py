@@ -7,11 +7,9 @@ import pickle
 import random
 import inspect
 import warnings
-from collections import defaultdict
-from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import os
 import torch
 from torch.utils.data import Dataset
@@ -25,11 +23,19 @@ from transformers import (
 )
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
+from accelerate.utils import set_seed
+
 
 try:
     from trl import DPOTrainer, DPOConfig
 except ImportError:  # pragma: no cover - optional dependency
     DPOTrainer = None
+
+try:
+    from peft import LoraConfig, get_peft_model
+except ImportError:
+    LoraConfig = None
+    get_peft_model = None
 
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
@@ -157,9 +163,12 @@ def build_preference_examples(
     user_field: str,
     system_role: str,
     user_role: str,
-    rng: random.Random,
+    rng: Optional[random.Random],
+    num_negatives: int = 1,
 ) -> List[PreferenceExample]:
     records = list(records)
+    if rng is None:
+        rng = random.Random()
     direct_pairs = [
         rec for rec in records if "prompt" in rec and "chosen" in rec and "rejected" in rec
     ]
@@ -185,38 +194,6 @@ def build_preference_examples(
         return preference_examples
     else:
         print("No direct preference pairs found; constructing from conversation examples.")
-        return 
-    # direct_pairs = [rec for rec in records if rec.get("ori_resp") and rec.get("new_resp")]
-
-    # if direct_pairs:
-    #     preference_examples: List[PreferenceExample] = []
-    #     for idx, rec in enumerate(direct_pairs):
-    #         context = str(rec.get("context", "")).strip()
-    #         chosen = str(rec.get("ori_resp", "")).strip()
-    #         rejected = str(rec.get("new_resp", "")).strip()
-    #         if not chosen or not rejected or chosen == rejected:
-    #             continue
-    #         prompt = context
-    #         if prompt:
-    #             prompt = prompt.rstrip()
-    #             if not prompt.endswith("\n"):
-    #                 prompt += "\n"
-    #             if not prompt.strip().endswith(f"{system_role}:"):
-    #                 prompt = f"{prompt}{system_role}: "
-    #         else:
-    #             prompt = f"{system_role}: "
-    #         preference_examples.append(
-    #             PreferenceExample(
-    #                 prompt=prompt,
-    #                 chosen=f" {chosen}",
-    #                 rejected=f" {rejected}",
-    #                 dialog_id=str(rec.get("did", idx)),
-    #                 turn_index=int(rec.get("turn_index", idx)),
-    #             )
-    #         )
-    #     if not preference_examples:
-    #         raise ValueError("No valid preference pairs with ori/new responses found in dataset.")
-    #     return preference_examples
 
     conversation_examples = build_examples(
         records,
@@ -229,68 +206,27 @@ def build_preference_examples(
         raise ValueError("Need at least two conversation examples to build preference pairs for DPO.")
 
     pool = [ex.completion for ex in conversation_examples]
-    if len(set(pool)) < 2:
+    unique_pool = list(dict.fromkeys(pool))
+    if len(unique_pool) < 2:
         raise ValueError("Preference pool contains only one unique completion; cannot form rejected samples.")
-
-    by_dialog: Dict[str, List[ConversationExample]] = {}
-    for example in conversation_examples:
-        by_dialog.setdefault(example.dialog_id, []).append(example)
-
-    used_rejection_counts: Dict[str, int] = defaultdict(int)
-
-    def normalize_text(text: str) -> str:
-        return " ".join(text.split()).lower()
-
-    def pick_rejected(example: ConversationExample) -> str:
-        # Prefer negatives from the same dialogue to keep context mismatch realistic.
-        in_dialog_candidates = [
-            candidate.completion
-            for candidate in by_dialog.get(example.dialog_id, [])
-            if candidate.turn_index != example.turn_index
-        ]
-        cross_dialog_candidates = [
-            candidate.completion
-            for candidate in conversation_examples
-            if candidate.dialog_id != example.dialog_id
-        ]
-        candidate_sets = [in_dialog_candidates, cross_dialog_candidates]
-        chosen_norm = normalize_text(example.completion)
-        for candidates in candidate_sets:
-            if not candidates:
-                continue
-            unique_ordered = list(dict.fromkeys(candidates))
-            local_valid: List[Tuple[int, str, str]] = []
-            for rejected in unique_ordered:
-                rejected_norm = normalize_text(rejected)
-                if not rejected_norm or rejected_norm == chosen_norm:
-                    continue
-                similarity = SequenceMatcher(None, example.completion, rejected).ratio()
-                if similarity >= 0.95:
-                    continue
-                usage = used_rejection_counts[rejected_norm]
-                local_valid.append((usage, rejected, rejected_norm))
-            if local_valid:
-                min_usage = min(item[0] for item in local_valid)
-                reservoir = [item for item in local_valid if item[0] == min_usage]
-                _, selected_text, selected_norm = rng.choice(reservoir)
-                used_rejection_counts[selected_norm] += 1
-                return selected_text
-        return ""
 
     preference_examples: List[PreferenceExample] = []
     for example in conversation_examples:
-        rejected = pick_rejected(example)
-        if not rejected:
+        candidates = [cand for cand in unique_pool if cand != example.completion]
+        if not candidates:
             continue
-        preference_examples.append(
-            PreferenceExample(
-                prompt=example.prompt,
-                chosen=example.completion,
-                rejected=rejected,
-                dialog_id=example.dialog_id,
-                turn_index=example.turn_index,
+        for _ in range(max(1, num_negatives)):
+            rejected = rng.choice(candidates)
+            preference_examples.append(
+                PreferenceExample(
+                    prompt=example.prompt,
+                    chosen=example.completion,
+                    rejected=rejected,
+                    dialog_id=example.dialog_id,
+                    turn_index=example.turn_index,
+                )
             )
-        )
+
     if not preference_examples:
         raise ValueError("Failed to generate any preference examples; try adjusting dataset or sampling strategy.")
     return preference_examples
@@ -343,11 +279,31 @@ class ConversationDataset(Dataset):
         return self._encode_pair(example.prompt, example.completion)
 
 
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> AutoModelForCausalLM:
+    if not args.use_lora:
+        return model
+    if LoraConfig is None or get_peft_model is None:
+        raise ImportError("peft is required for --use-lora. Install it with `pip install peft`. ")
+    target_modules = [mod.strip() for mod in args.lora_target_modules.split(",") if mod.strip()]
+    if hasattr(model, "enable_input_require_grads"):
+        try:
+            model.enable_input_require_grads()
+        except Exception:
+            pass
+    lora_config = LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=target_modules or None,
+    )
+    model = get_peft_model(model, lora_config)
+    try:
+        model.print_trainable_parameters()
+    except AttributeError:
+        pass
+    return model
 
 
 def parse_args() -> argparse.Namespace:
@@ -365,22 +321,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-ratio", type=float, default=0.03, help="Linear warmup ratio.")
     parser.add_argument("--validation-ratio", type=float, default=0.1, help="Fraction of samples reserved for validation.")
     parser.add_argument("--max-samples", type=int, default=0, help="Optional cap on total samples (0 = use all).")
+    parser.add_argument("--num-negatives", type=int, default=1, help="Number of rejected completions to sample per positive example when synthesizing preference pairs.")
     parser.add_argument("--system-field", type=str, default="er", help="Field name for system utterances in the dataset.")
     parser.add_argument("--user-field", type=str, default="ee", help="Field name for user utterances in the dataset.")
     parser.add_argument("--system-role", type=str, default="Persuader", help="Role label for system turns.")
     parser.add_argument("--user-role", type=str, default="Persuadee", help="Role label for user turns.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--fp16", action="store_true", help="Use mixed precision if available.")
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing (disables use_cache automatically).",
+    )
     parser.add_argument("--logging-steps", type=int, default=25, help="Trainer logging frequency.")
     parser.add_argument("--save-total-limit", type=int, default=2, help="Max number of saved checkpoints.")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="Inverse temperature for the DPO loss.")
     parser.add_argument("--reference-model-name", type=str, default=None, help="Optional reference model identifier for DPO.")
+    parser.add_argument("--use-lora", action="store_true", help="Enable LoRA fine-tuning (requires peft).")
+    parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank.")
+    parser.add_argument("--lora-alpha", type=float, default=32.0, help="LoRA alpha scaling factor.")
+    parser.add_argument("--lora-dropout", type=float, default=0.05, help="LoRA dropout probability.")
+    parser.add_argument(
+        "--lora-target-modules",
+        type=str,
+        default="q_proj,k_proj,v_proj,o_proj",
+        help="Comma-separated list of module names to apply LoRA to.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    set_seed(args.seed)
 
     if args.output_dir is None:
         auto_dir = f"outputs/{args.model_name.replace('/', '_')}-{args.algorithm}"
@@ -394,6 +365,15 @@ def main() -> None:
     if tokenizer.pad_token_id is not None and model.config.pad_token_id != tokenizer.pad_token_id:
         model.resize_token_embeddings(len(tokenizer))
         model.config.pad_token_id = tokenizer.pad_token_id
+
+    model = maybe_wrap_lora(model, args)
+    if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+        if hasattr(model, "config"):
+            model.config.use_cache = False
 
     max_positions = getattr(model.config, "max_position_embeddings", args.max_length)
     effective_max_length = min(args.max_length, max_positions)
@@ -446,6 +426,9 @@ def main() -> None:
             save_total_limit=args.save_total_limit,
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
+            ddp_backend="nccl",
+            ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
+            gradient_checkpointing=args.gradient_checkpointing,
             # 🔧 tránh treo do DataLoader
             # dataloader_num_workers=0,           # debug/stable nhất
             # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
@@ -486,6 +469,7 @@ def main() -> None:
 
         trainer.train()
         trainer.save_model()
+        model.save_pretrained(args.output_dir)
     else:
         if DPOTrainer is None:
             raise ImportError("trl is required for DPO training. Install it with `pip install trl`. ")
@@ -498,6 +482,7 @@ def main() -> None:
             system_role=args.system_role,
             user_role=args.user_role,
             rng=rng,
+            num_negatives=args.num_negatives,
         )
         if not pref_examples:
             raise ValueError("No preference examples constructed from dataset.")
@@ -530,6 +515,8 @@ def main() -> None:
         if tokenizer.pad_token_id is not None and reference_model.config.pad_token_id != tokenizer.pad_token_id:
             reference_model.resize_token_embeddings(len(tokenizer))
             reference_model.config.pad_token_id = tokenizer.pad_token_id
+        reference_model.requires_grad_(False)
+        reference_model.eval()
 
         do_eval = eval_dataset is not None
         dpo_args = DPOConfig(
@@ -552,7 +539,7 @@ def main() -> None:
             beta=args.dpo_beta,
             max_length=effective_max_length,
             max_prompt_length=min(effective_max_length, args.max_length),
-            gradient_checkpointing=False,
+            gradient_checkpointing=args.gradient_checkpointing,
             do_train=True,
             do_eval=do_eval,
         )
@@ -568,6 +555,7 @@ def main() -> None:
 
         dpo_trainer.train()
         dpo_trainer.save_model()
+        model.save_pretrained(args.output_dir)
 
     tokenizer.save_pretrained(args.output_dir)
 

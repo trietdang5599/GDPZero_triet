@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+NCCL_P2P_DISABLE=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -9,12 +10,23 @@ ACCELERATE_BIN="${ACCELERATE_BIN:-accelerate}"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
-PREF_PATH="${REPO_ROOT}/data/p4g/preferences.jsonl"
+PREF_PATH="${REPO_ROOT}/data/p4g/preference_pair.jsonl"
 SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft"
 DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo"
+DEFAULT_ACCELERATE_CFG="${REPO_ROOT}/config/accelerate_config.yaml"
+if [[ -z "${ACCELERATE_CONFIG:-}" && -f "${DEFAULT_ACCELERATE_CFG}" ]]; then
+	ACCELERATE_CONFIG="${DEFAULT_ACCELERATE_CFG}"
+fi
+
+USE_LORA="${USE_LORA:-1}"
+LORA_R="${LORA_R:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
+LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
-MASTER_PORT="${MASTER_PORT:-29500}"
+MASTER_PORT="${MASTER_PORT:-0}"
 GPU_IDS="${GPU_IDS:-}"           # ví dụ: "0,3" để dùng GPU 0 và 3
 
 # tránh phân mảnh VRAM cho model lớn
@@ -56,12 +68,25 @@ else
   fi
 fi
 
+# Nếu MASTER_PORT chưa được gán, chọn ngẫu nhiên một cổng rảnh để tránh xung đột giữa các job
+if [[ "${MASTER_PORT}" == "0" || "${MASTER_PORT}" == "auto" ]]; then
+	MASTER_PORT="$(${PYTHON_BIN} - <<'PY'
+import socket
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind(("", 0))
+    print(s.getsockname()[1])
+PY
+)"
+fi
+
 # NCCL env cho single-node
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-lo}"
 unset NCCL_BLOCKING_WAIT
 export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+# transformers will try to import torchvision; disable to avoid GPU op mismatch
+export TRANSFORMERS_NO_TORCHVISION="${TRANSFORMERS_NO_TORCHVISION:-1}"
 
 echo "=== GDPZero Training Pipeline (accelerate) ==="
 echo "Python executable : ${PYTHON_BIN}"
@@ -78,49 +103,94 @@ echo "GPUs requested    : ${NUM_GPUS}"
 [[ -f "${DATASET_PATH}" ]] || { echo "Dataset not found at ${DATASET_PATH}" >&2; exit 1; }
 mkdir -p "$(dirname "${PREF_PATH}")" "${SFT_OUTPUT}" "${DPO_OUTPUT}"
 
+if [[ -n "$(ls -A "${SFT_OUTPUT}" 2>/dev/null)" ]]; then
+	echo "[warn] SFT checkpoint directory ${SFT_OUTPUT} is not empty. Skipping SFT step."
+	SKIP_SFT=1
+else
+	SKIP_SFT=0
+fi
+
 if [[ ! -f "${PREF_PATH}" ]]; then
-  echo "[1/3] Building preference dataset..."
-  "${PYTHON_BIN}" "${REPO_ROOT}/hf_train.py" build-preference-dataset \
-    --dialog-path "${DATASET_PATH}" \
-    --output "${PREF_PATH}" \
-    --num-negatives 1
+echo "[1/3] Building preference dataset..."
+"${PYTHON_BIN}" "${REPO_ROOT}/runners/generate_preference_pairs.py" \
+	--llm gpt-3.5-turbo \
+	--only-success \
+	--log-turn-details \
+	--num-dialogs "${NUM_DIALOGS:-30}" \
+	--num-mcts-sims "${NUM_MCTS_SIMS:-10}" \
+	--output "${PREF_PATH}"
 else
   echo "[1/3] Preference dataset already exists at ${PREF_PATH}, skipping."
 fi
 
 run_training () {
-  if (( NUM_GPUS >= 2 )); then
-    # multi-GPU đúng chuẩn: num_processes == số GPU visible
-    "${ACCELERATE_BIN}" launch \
-      --multi_gpu \
-      --num_processes "${NUM_GPUS}" \
-      --num_machines 1 \
-      --mixed_precision no \
-      --dynamo_backend no \
-      --main_process_port "${MASTER_PORT}" \
-      "${REPO_ROOT}/train_llm.py" "$@"
-  elif (( NUM_GPUS == 1 )); then
-    # single GPU (một tiến trình, không spawn rank >0)
-    "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-  else
-    # CPU fallback
-    echo "[warn] No CUDA GPUs detected. Running on CPU."
-    "${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
-  fi
+	if (( NUM_GPUS >= 1 )); then
+		acc_args=(
+			--main_process_port "${MASTER_PORT}"
+			--num_machines 1
+			--num_processes "${NUM_GPUS}"
+			--mixed_precision no
+			--dynamo_backend no
+		)
+		use_multi=0
+		if (( NUM_GPUS >= 2 )); then
+			use_multi=1
+			acc_args+=(--multi_gpu)
+			if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+				if [[ "${CUDA_VISIBLE_DEVICES}" == "all" ]]; then
+					acc_args+=(--gpu_ids all)
+				elif [[ "${CUDA_VISIBLE_DEVICES}" == *,* ]]; then
+					acc_args+=(--gpu_ids "${CUDA_VISIBLE_DEVICES}")
+				else
+					acc_args+=(--gpu_ids all)
+				fi
+			else
+				acc_args+=(--gpu_ids all)
+			fi
+		fi
+		if [[ -n "${ACCELERATE_CONFIG:-}" ]]; then
+			acc_args+=(--config_file "${ACCELERATE_CONFIG}")
+		fi
+		"${ACCELERATE_BIN}" launch "${acc_args[@]}" "${REPO_ROOT}/train_llm.py" "$@"
+	else
+		echo "[warn] No CUDA GPUs detected. Running on CPU."
+		"${PYTHON_BIN}" "${REPO_ROOT}/train_llm.py" "$@"
+	fi
 }
 
-echo "[2/3] Running supervised fine-tuning ..."
-run_training \
-  --algorithm sft \
-  --dataset-path "${DATASET_PATH}" \
-  --model-name "${MODEL_NAME}" \
-  --output-dir "${SFT_OUTPUT}" \
-  --batch-size 4 \
-  --gradient-accumulation 16 \
-  --num-train-epochs 2 \
-  --learning-rate 2e-5 \
-  --max-length 512 \
-  "$@"
+LORA_ARGS=()
+if [[ "${USE_LORA}" != "0" ]]; then
+	LORA_ARGS=(
+		--use-lora
+		--lora-r "${LORA_R}"
+		--lora-alpha "${LORA_ALPHA}"
+		--lora-dropout "${LORA_DROPOUT}"
+		--lora-target-modules "${LORA_TARGET_MODULES}"
+	)
+fi
+GRADIENT_ARGS=()
+if [[ "${GRADIENT_CHECKPOINTING}" != "0" ]]; then
+	GRADIENT_ARGS+=(--gradient-checkpointing)
+fi
+
+if (( SKIP_SFT == 0 )); then
+	echo "[2/3] Running supervised fine-tuning ..."
+	run_training \
+	  --algorithm sft \
+	  --dataset-path "${DATASET_PATH}" \
+	  --model-name "${MODEL_NAME}" \
+	  --output-dir "${SFT_OUTPUT}" \
+	  --batch-size 4 \
+	  --gradient-accumulation 16 \
+	  --num-train-epochs 10 \
+	  --learning-rate 2e-5 \
+	  --max-length 512 \
+	  "${LORA_ARGS[@]}" \
+	  "${GRADIENT_ARGS[@]}" \
+	  "$@"
+else
+	echo "[2/3] Supervised fine-tuning skipped (checkpoint already present)."
+fi
 
 echo "[3/3] Running DPO preference optimization..."
 run_training \
@@ -131,10 +201,12 @@ run_training \
   --output-dir "${DPO_OUTPUT}" \
   --batch-size 4 \
   --gradient-accumulation 16 \
-  --num-train-epochs 2 \
+  --num-train-epochs 10 \
   --learning-rate 1e-5 \
   --max-length 512 \
   --dpo-beta 0.1 \
+  "${LORA_ARGS[@]}" \
+  "${GRADIENT_ARGS[@]}" \
   "$@"
 
 echo "Training pipeline complete."

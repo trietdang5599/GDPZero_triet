@@ -1,10 +1,15 @@
-import numpy as np
 import logging
 import math
+
+import numpy as np
 
 from core.helpers import DialogSession
 from core.game import DialogGame
 from core.P4GSystemPlanner import DialogPlanner
+from utils.utils import (
+	summarize_action_statistics,
+	get_preference_pair,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -62,9 +67,14 @@ class MCTS():
 			v = self._init_node(state)
 			is_leaf_node = True
 		# if this leaf node is terminal, return the value
-		if self.terminals[hashable_state] > 0:
+		if self.terminals[hashable_state] != 0:
 			# terminal node
-			logger.debug("ended")
+			logger.debug(
+				"MCTS simulation terminal (value=%s) state hash=%s\n%s",
+				self.terminals[hashable_state],
+				hashable_state,
+				state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1),
+			)
 			return self.terminals[hashable_state]
 		# otherwise, return v
 		if is_leaf_node:
@@ -94,6 +104,13 @@ class MCTS():
 		self.Q[hashable_state][best_action] = (self.Nsa[hashable_state][best_action] * self.Q[hashable_state][best_action] + v) / (self.Nsa[hashable_state][best_action] + 1)
 		self.Ns[hashable_state] += 1
 		self.Nsa[hashable_state][best_action] += 1
+		logger.info(
+			"Updated Q-value: state=%s action=%s visit=%s Q=%.4f\n",
+			hashable_state,
+			best_action,
+			self.Nsa[hashable_state][best_action],
+			self.Q[hashable_state][best_action],
+		)
 		
 		# now we are single player, hence just v instead of -v
 		return v
@@ -104,13 +121,34 @@ class MCTS():
 			# selected leaf node, expand
 			logging.warn("querying a state that has not been visited")
 			self._init_node(state)
-		# get the counts for all moves
-		# convert to prob
 		prob = np.zeros(self.player.get_valid_moves(state).shape)
 		for a in self.valid_moves[hashable_state]:
 			prob[a] = self.Nsa[hashable_state][a]
 		prob /= prob.sum()
-		print("prob: ", prob)
+		realizations_vs = getattr(self, "realizations_Vs", None)
+		header, detail = summarize_action_statistics(
+			prob,
+			hashable_state,
+			self.player.dialog_acts,
+			self.valid_moves[hashable_state],
+			self.Q,
+			self.Nsa,
+			realizations_vs,
+		)
+		preference_pair = get_preference_pair(
+			probabilities=prob,
+			state_rep=hashable_state,
+			dialog_acts=self.player.dialog_acts,
+			valid_moves=self.valid_moves[hashable_state],
+			realizations_vs=realizations_vs,
+		)
+
+		best_pair = preference_pair[1] if preference_pair else None
+		worst_pair = preference_pair[2] if preference_pair else None
+		logger.info(f"Preference pair: {best_pair} | {worst_pair}")
+
+		logger.info(header)
+		logger.debug("Action detail distribution:\n%s", detail)
 		return prob
 
 
@@ -203,8 +241,18 @@ class OpenLoopMCTS(MCTS):
 		# check everytime since state is stochastic, does not map to hashable_state
 		terminated_v = self.game.get_dialog_ended(state)
 		# check if it is terminal node
-		if terminated_v == 1.0:
-			logger.debug("ended")
+		if terminated_v != 0.0:
+			if terminated_v == 1.0:
+				isDonate = "Donation success!"
+			else:
+				isDonate = "Donation failed."
+			logger.info(
+				"MCTS simulation terminal (value=%s) state hash=%s\n%s",
+				terminated_v,
+				hashable_state,
+				# state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1),
+				isDonate
+			)
 			return terminated_v
 		
 		# otherwise, if is nontermial leaf node, we initialize and return v
@@ -221,7 +269,9 @@ class OpenLoopMCTS(MCTS):
 		# go next state by picking best according to U(s,a)
 		best_uct = -float('inf')
 		best_action = -1
+		
 		for a in self.valid_moves[hashable_state]:
+			# logger.info(f"Action {a}: Q={self.Q[hashable_state][a]}, P={self.P[hashable_state][a]}, Nsa={self.Nsa[hashable_state][a]}\n")
 			Ns = self.Ns[hashable_state]
 			if Ns == 0:
 				Ns = 1e-8
@@ -243,7 +293,13 @@ class OpenLoopMCTS(MCTS):
 		self.Q[hashable_state][best_action] = (self.Nsa[hashable_state][best_action] * self.Q[hashable_state][best_action] + v) / (self.Nsa[hashable_state][best_action] + 1)
 		self.Ns[hashable_state] += 1
 		self.Nsa[hashable_state][best_action] += 1
-
+		# logger.info(
+		# 	"Updated Q-value: state=%s action=%s visit=%s Q=%.4f",
+		# 	hashable_state,
+		# 	best_action,
+		# 	self.Nsa[hashable_state][best_action],
+		# 	self.Q[hashable_state][best_action],
+		# )
 		# update v to realizations for NLG at inference
 		self._update_realizations_Vs(next_state, v)
 		# now we are single player, hence just v instead of -v
