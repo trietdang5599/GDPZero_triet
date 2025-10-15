@@ -23,7 +23,40 @@ from utils.prompt_examples import EXP_DIALOG
 
 logger = logging.getLogger(__name__)
 
+def _build_agents_and_game(args):
+    """
+    Dùng factory có sẵn của bạn để tạo backbone model + lớp chat.
+    """
+    backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
 
+    ontology = PersuasionGame.get_game_ontology()
+    sys_das = ontology["system"]["dialog_acts"]
+    usr_das = ontology["user"]["dialog_acts"]
+
+    # Persuader / Persuadee models (NLG)
+    persuader = SysModel(dialog_acts=sys_das, backbone_model=backbone_model,
+                         max_hist_num_turns=args.max_hist, conv_examples=[],
+                         inference_args={})
+    persuadee = UsrModel(dialog_acts=usr_das, backbone_model=backbone_model,
+                         max_hist_num_turns=args.max_hist_user, conv_examples=[],
+                         inference_args={"max_new_tokens": 64, "temperature": 0.7})
+
+    # Planner (policy & value/heuristic)
+    planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=args.max_hist,
+                         user_dialog_acts=usr_das, user_max_hist_num_turns=args.max_hist_user,
+                         generation_model=backbone_model, conv_examples=[])
+    
+    persuadee_planner = None
+    if args.user_mode in {"planner", "hybrid"}:
+        persuadee_planner = PersuadeeHeuristicPlanner(
+			persuadee.dialog_acts,
+			donate_prob=args.planner_donate_prob,
+			seed=args.seed,
+		)
+
+    # Game
+    game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
+    return backbone_model, planner, persuadee_planner, game, sys_das
 
 def simulate_dialog(
 	game: PersuasionGame,
@@ -225,50 +258,10 @@ def main() -> None:
 	configure_logging(args.log_level)
 	set_determinitic_seed(args.seed)
 
-	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
-	ontology = PersuasionGame.get_game_ontology()
-	exp_session = DialogSession(PersuasionGame.SYS, PersuasionGame.USR).from_history(EXP_DIALOG)
-
-	system = SysModel(
-		ontology["system"]["dialog_acts"],
-		backbone_model,
-		conv_examples=[exp_session],
-		inference_args={
-			"max_new_tokens": 128,
-			"temperature": 0.0,
-			"do_sample": False,
-			"return_full_text": False,
-		},
-	)
-	user = UsrModel(
-		ontology["user"]["dialog_acts"],
-		inference_args={
-			"max_new_tokens": 128,
-			"temperature": 0.4,
-			"do_sample": True,
-			"return_full_text": False,
-		},
-		backbone_model=backbone_model,
-		conv_examples=[exp_session],
-	)
-	planner = SysPlanner(
-		dialog_acts=system.dialog_acts,
-		max_hist_num_turns=system.max_hist_num_turns,
-		user_dialog_acts=user.dialog_acts,
-		user_max_hist_num_turns=user.max_hist_num_turns,
-		generation_model=backbone_model,
-		conv_examples=[],
-	)
-	game = PersuasionGame(system, user)
-
-	user_planner = None
-	if args.user_mode in {"planner", "hybrid"}:
-		user_planner = PersuadeeHeuristicPlanner(
-			user.dialog_acts,
-			donate_prob=args.planner_donate_prob,
-			seed=args.seed,
-		)
-
+	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
+	# logger.info("Using backbone model: %s", backbone_model.model_name)
+	logger.info("System dialog acts: %s", sys_das)
+ 
 	mcts_cfg = dotdict(
 		{
 			"cpuct": 1.0,
@@ -289,7 +282,7 @@ def main() -> None:
 			args.max_turns,
 			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
-			user_planner=user_planner,
+			user_planner=persuadee_planner,
 		)
 		results.append(sim_result)
 		for turn in sim_result["turns"]:
