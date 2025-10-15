@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PYTHON_BIN="${PYTHON:-python}"
 MODEL_PATH="${MODEL_PATH:-outputs/qwen25-dpo}"
-SIM_COUNTS=(10 20)
+SIM_COUNTS=(10)
 NUM_DIALOGS="${NUM_DIALOGS:-30}"
 LOG_DIR="${REPO_ROOT}/logs"
 OUTPUT_DIR="${REPO_ROOT}/outputs"
