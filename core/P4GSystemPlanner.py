@@ -202,7 +202,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 
 		self.inf_args = {
 			"max_new_tokens": 12,
-			"temperature": 1.0,
+			"temperature": 1.1,
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 15,
@@ -367,7 +367,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 
 		inf_args = {
 			"max_new_tokens": 12,
-			"temperature": 0.7, # temp = 1.1 -> too many NoDonation
+			"temperature": 1.1, # temp = 1.1 -> too many NoDonation
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 10,
