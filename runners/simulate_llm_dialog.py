@@ -196,7 +196,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--num-mcts-sims",
 		type=int,
-		default=10,
+		default=20,
 		help="Number of MCTS simulations per turn.",
 	)
 	parser.add_argument(
