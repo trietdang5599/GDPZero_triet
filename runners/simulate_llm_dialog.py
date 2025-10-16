@@ -36,11 +36,15 @@ def _build_agents_and_game(args):
     # Persuader / Persuadee models (NLG)
     # Enable sampling for Persuader so OpenLoop MCTS can cache
     # multiple realizations per action and produce preference pairs.
+    system_name = PersuasionGame.SYS
+    user_name = PersuasionGame.USR
+    exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
+
     persuader = SysModel(
         dialog_acts=sys_das,
         backbone_model=backbone_model,
         max_hist_num_turns=2,
-        conv_examples=[],
+        conv_examples=[exp_dialog],
         inference_args={
             "max_new_tokens": 128,
             "temperature": 0.7,
@@ -49,13 +53,13 @@ def _build_agents_and_game(args):
         },
     )
     persuadee = UsrModel(dialog_acts=usr_das, backbone_model=backbone_model,
-                         max_hist_num_turns=2, conv_examples=[],
-                         inference_args={"max_new_tokens": 64, "temperature": 0.1})
+                         max_hist_num_turns=2, conv_examples=[exp_dialog],
+                         inference_args={"max_new_tokens": 64, "temperature": 0.5})
 
     # Planner (policy & value/heuristic)
     planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=2,
                          user_dialog_acts=usr_das, user_max_hist_num_turns=2,
-                         generation_model=backbone_model, conv_examples=[])
+                         generation_model=backbone_model, conv_examples=[exp_dialog])
     
     persuadee_planner = None
     if args.user_mode in {"planner", "hybrid"}:
@@ -245,7 +249,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--classify-user-act",
 		action="store_true",
-		help="Run an auxiliary classification step to assign persuadee dialog acts.",
+		help="Run an auxiliary classification step to assign persuadee dialog acts. Dùng prompt để LLM phân loại hành động của persuadee.",
 	)
 	parser.add_argument(
 		"--planner-donate-prob",

@@ -150,8 +150,8 @@ class P4GSystemPlanner(DialogPlanner):
 		prompt = prompt.replace("\t", "").strip()
 
 		inf_args = {
-			"max_new_tokens": 8,
-			"temperature": 1.1,
+			"max_new_tokens": 12,
+			"temperature": 0.7, # temp = 1.1 -> too many NoDonation
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 10,
@@ -367,7 +367,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 
 		inf_args = {
 			"max_new_tokens": 12,
-			"temperature": 1.1,
+			"temperature": 0.7, # temp = 1.1 -> too many NoDonation
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 10,
