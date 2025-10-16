@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 
 import argparse
 import logging
@@ -16,7 +16,7 @@ from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.model_factory import create_factor_llm
 from core.helpers import DialogSession
-from core.PersuadeePlanner import PersuadeeHeuristicPlanner
+from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
 from utils.utils import dotdict, set_determinitic_seed
 from utils.prompt_examples import EXP_DIALOG
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def _build_agents_and_game(args):
     """
-    Dùng factory có sẵn của bạn để tạo backbone model + lớp chat.
+    DÃ¹ng factory cÃ³ sáºµn cá»§a báº¡n Ä‘á»ƒ táº¡o backbone model + lá»›p chat.
     """
     backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
 
@@ -59,11 +59,19 @@ def _build_agents_and_game(args):
     
     persuadee_planner = None
     if args.user_mode in {"planner", "hybrid"}:
-        persuadee_planner = PersuadeeHeuristicPlanner(
-			persuadee.dialog_acts,
-			donate_prob=args.planner_donate_prob,
-			seed=args.seed,
-		)
+        if getattr(args, "user_planner", "heuristic") == "llm":
+            persuadee_planner = PersuadeeLLMPlanner(
+                dialog_acts=persuadee.dialog_acts,
+                generation_model=backbone_model,
+                max_hist_num_turns=2,
+                seed=args.seed,
+            )
+        else:
+            persuadee_planner = PersuadeeHeuristicPlanner(
+                persuadee.dialog_acts,
+                donate_prob=args.planner_donate_prob,
+                seed=args.seed,
+            )
 
     # Game
     game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
@@ -218,12 +226,22 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum dialog turns before forcing termination.",
 	)
 	parser.add_argument(
-		"--user-mode",
-		type=str,
-		choices=["llm", "planner", "hybrid"],
-		default="llm",
-		help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
-	)
+        "--user-mode",
+        type=str,
+        choices=["llm", "planner", "hybrid"],
+        default="llm",
+        help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
+    )
+	parser.add_argument(
+        "--user-planner",
+        type=str,
+        choices=["heuristic", "llm"],
+        default="heuristic",
+        help=(
+            "When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (mapping + randomness) or 'llm' "
+            "(content-aware action selection from last 1–2 Persuader utterances)."
+        ),
+    )
 	parser.add_argument(
 		"--classify-user-act",
 		action="store_true",
@@ -323,3 +341,4 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
+

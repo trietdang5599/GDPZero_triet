@@ -130,6 +130,8 @@ class P4GSystemPlanner(DialogPlanner):
 				pred_da.append(found_da)
 		return pred_da
 
+	# compute heuristic value for a given state (Persuadee state)
+	# e.g: sample_das = [U_Neutral, U_PositiveReaction, U_NegativeReaction, U_PositiveReaction] -> v = (0.0 + 0.5 - 0.5 + 0.5) / 4 = 0.125
 	def heuristic(self, state:DialogSession) -> float:
 		# insert prop to donate, and compute the likelihood of user simulator agreeing to donate
 		assert(state[-1][0] == PersuasionGame.USR)
