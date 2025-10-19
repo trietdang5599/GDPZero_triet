@@ -155,6 +155,7 @@ def main(cmd_args):
 				backbone_model._cached_generate.cache_clear()
 			dialog_planner = OpenLoopMCTS(game, planner, args)
 			logger.debug("Searching action for turn %s", t)
+			# run MCTS simulations to calculate action probabilities
 			for i in tqdm(range(args.num_MCTS_sims)):
 				dialog_planner.search(state)
 

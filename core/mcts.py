@@ -178,7 +178,7 @@ class OpenLoopMCTS(MCTS):
 		self.Nsa[hashable_state] = {action: 0 for action in self.valid_moves[hashable_state]}
 		self.Q[hashable_state] = {action: self.configs.Q_0 for action in self.valid_moves[hashable_state]}
 		self.realizations[hashable_state] = [state.copy()]
-
+		# predict prior and value
 		prior, v = self.player.predict(state)
 		self.Vs[state.to_string_rep(keep_sys_da=True, keep_user_da=True)] = v  # for debugging
 		self.P[hashable_state] = prior * allowed_actions

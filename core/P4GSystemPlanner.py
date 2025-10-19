@@ -130,6 +130,8 @@ class P4GSystemPlanner(DialogPlanner):
 				pred_da.append(found_da)
 		return pred_da
 
+	# compute heuristic value for a given state (Persuadee state)
+	# e.g: sample_das = [U_Neutral, U_PositiveReaction, U_NegativeReaction, U_PositiveReaction] -> v = (0.0 + 0.5 - 0.5 + 0.5) / 4 = 0.125
 	def heuristic(self, state:DialogSession) -> float:
 		# insert prop to donate, and compute the likelihood of user simulator agreeing to donate
 		assert(state[-1][0] == PersuasionGame.USR)
@@ -148,8 +150,8 @@ class P4GSystemPlanner(DialogPlanner):
 		prompt = prompt.replace("\t", "").strip()
 
 		inf_args = {
-			"max_new_tokens": 8,
-			"temperature": 1.1,
+			"max_new_tokens": 12,
+			"temperature": 0.7, # temp = 1.1 -> too many NoDonation
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 10,
@@ -200,7 +202,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 
 		self.inf_args = {
 			"max_new_tokens": 12,
-			"temperature": 1.0,
+			"temperature": 1.1,
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 15,
@@ -365,7 +367,7 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 
 		inf_args = {
 			"max_new_tokens": 12,
-			"temperature": 1.1,
+			"temperature": 1.1, # temp = 1.1 -> too many NoDonation
 			"return_full_text": False,
 			"do_sample": True,
 			"num_return_sequences": 10,
