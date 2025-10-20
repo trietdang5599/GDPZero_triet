@@ -1,7 +1,11 @@
+import json
 import logging
+import random
+import re
+from pathlib import Path
 
 from collections import Counter
-from typing import List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel
@@ -22,6 +26,7 @@ class PersuadeeModel(DialogModel):
 		self.backbone_model = backbone_model
 		self.dialog_acts = dialog_acts
 		self.max_hist_num_turns = max_hist_num_turns
+		self.persona_profiles = self._load_persona_profiles()
 		# prompts
 		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
@@ -43,6 +48,50 @@ class PersuadeeModel(DialogModel):
 			"return_full_text": False,
 		}
 		return
+
+	def _load_persona_profiles(self) -> List[Dict[str, str]]:
+		persona_path = Path(__file__).resolve().parents[1] / "outputs" / "bigfive_personas.jsonl"
+		profiles: List[Dict[str, str]] = []
+		if not persona_path.exists():
+			logger.warning("Persona profile file not found at %s; continuing without personas.", persona_path)
+			return profiles
+		try:
+			with persona_path.open("r", encoding="utf-8") as handle:
+				for raw_line in handle:
+					line = raw_line.strip()
+					if not line:
+						continue
+					try:
+						entry = json.loads(line)
+					except json.JSONDecodeError:
+						logger.warning("Failed to parse persona line: %s", line[:80])
+						continue
+					description = entry.get("description") or ""
+					description = description.strip()
+					if not description:
+						continue
+					profiles.append(
+						{
+							"description": description,
+							"big_five": entry.get("big_five_personality", ""),
+							"decision_making_style": entry.get("decision_making_style", ""),
+						}
+					)
+		except Exception as exc:  # pragma: no cover
+			logger.warning("Unable to load persona profiles from %s: %s", persona_path, exc)
+		if not profiles:
+			logger.warning("No persona descriptions loaded from %s.", persona_path)
+		return profiles
+
+	def _get_persona_profile(self, state: DialogSession) -> Optional[Dict[str, str]]:
+		if not self.persona_profiles:
+			return None
+		profile = getattr(state, "_persona_profile", None)
+		if profile is None:
+			profile = random.choice(self.persona_profiles)
+			setattr(state, "_persona_profile", profile)
+		return profile
+
 	def process_exp(self):
 		prompt_exps = ""
 		for exp in self.conv_examples:
@@ -89,8 +138,21 @@ class PersuadeeModel(DialogModel):
 			action_instruction = (
 				f"The selected dialog act for this turn is [{action}]. Respond using this dialog act and follow the format `[dialog_act] utterance`.\n"
 			)
+		persona_profile = self._get_persona_profile(state)
+		persona_context = ""
+		if persona_profile:
+			context_lines = [
+				"Persona background for this conversation:",
+				persona_profile["description"],
+			]
+			if persona_profile.get("big_five"):
+				context_lines.append(f"Big-Five Personality: {persona_profile['big_five']}")
+			if persona_profile.get("decision_making_style"):
+				context_lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
+			persona_context = "\n".join(context_lines) + "\n"
 		prompt = f"""
 		{self.task_prompt}
+		{persona_context}
 		{action_instruction}
 		{state.to_string_rep(keep_user_da=True, max_turn_to_display=self.max_hist_num_turns)}
 		Persuadee:
@@ -115,7 +177,73 @@ class PersuadeeModel(DialogModel):
 			classified = self._classify_dialog_act(state, user_resp)
 			if classified:
 				da = classified
+		if da != PersuasionGame.U_Donate and self._is_affirmative_donation(user_resp):
+			da = PersuasionGame.U_Donate
 		return da, user_resp
+
+	def _is_affirmative_donation(self, text: str) -> bool:
+		normalized = text.lower()
+		if not any(keyword in normalized for keyword in ("donat", "contribute", "give", "pledge")):
+			return False
+		negative_phrases = [
+			"do not donate",
+			"don't donate",
+			"cannot donate",
+			"can't donate",
+			"won't donate",
+			"not donate",
+			"no donation",
+			"never donate",
+			"unable to donate",
+			"i can't give",
+			"i cannot give",
+			"i won't give",
+		]
+		for phrase in negative_phrases:
+			if phrase in normalized:
+				return False
+		commit_phrases = [
+			"i will donate",
+			"i'll donate",
+			"i am willing to donate",
+			"i'm willing to donate",
+			"i plan to donate",
+			"i intend to donate",
+			"i can donate",
+			"happy to donate",
+			"ready to donate",
+			"i will contribute",
+			"i'll contribute",
+			"i can contribute",
+			"count me in for",
+			"i will give",
+			"i'll give",
+			"i pledge to donate",
+			"i would like to donate",
+			"i'd like to donate",
+			"let me donate",
+		]
+		if any(phrase in normalized for phrase in commit_phrases):
+			return True
+		amount_pattern = re.compile(
+			r"(?:\$|\busd\b\s*)\s*\d+(?:\.\d+)?\s*(?:dollars?|usd)?|"
+			r"\d+(?:\.\d+)?\s*(?:dollars?|bucks?|usd|eur|euro|pounds?)",
+			re.IGNORECASE,
+		)
+		if "donate" in normalized or "donation" in normalized:
+			if amount_pattern.search(text):
+				return True
+			future_phrases = [
+				"will donate",
+				"can donate",
+				"shall donate",
+				"going to donate",
+				"willing to donate",
+				"happy to contribute",
+			]
+			if any(phrase in normalized for phrase in future_phrases):
+				return True
+		return False
 
 
 class PersuadeeChatModel(PersuadeeModel):

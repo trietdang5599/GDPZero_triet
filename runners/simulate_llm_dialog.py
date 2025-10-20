@@ -2,8 +2,10 @@
 
 import argparse
 import logging
+import pickle
+import random
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional, Tuple
 
 import sys
 
@@ -22,64 +24,165 @@ from utils.prompt_examples import EXP_DIALOG
 
 
 logger = logging.getLogger(__name__)
+_P4G_DIALOG_CACHE: Optional[List[Tuple[str, dict]]] = None
+
+
+def _load_p4g_dialogs() -> List[Tuple[str, dict]]:
+	global _P4G_DIALOG_CACHE
+	if _P4G_DIALOG_CACHE is not None:
+		return _P4G_DIALOG_CACHE
+	data_path = PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based.pkl"
+	if not data_path.exists():
+		logger.warning("P4G dataset not found at %s – simulations will start empty.", data_path)
+		_P4G_DIALOG_CACHE = []
+		return _P4G_DIALOG_CACHE
+	try:
+		with data_path.open("rb") as handle:
+			raw_data: Dict[str, dict] = pickle.load(handle)
+	except Exception as exc:  # pragma: no cover
+		logger.warning("Failed to load P4G dataset from %s: %s", data_path, exc)
+		_P4G_DIALOG_CACHE = []
+		return _P4G_DIALOG_CACHE
+	items = list(raw_data.items())
+	if not items:
+		logger.warning("P4G dataset at %s is empty.", data_path)
+	_P4G_DIALOG_CACHE = items
+	return _P4G_DIALOG_CACHE
+
+
+def _map_system_da(raw_das, system_dialog_acts: List[str]) -> str:
+	if not raw_das:
+		return system_dialog_acts[0]
+	if isinstance(raw_das, (list, tuple, set)):
+		candidates = [da for da in raw_das if da in system_dialog_acts]
+		if candidates:
+			return candidates[-1]
+		if "other" in system_dialog_acts:
+			return "other"
+		return raw_das[-1] if raw_das and isinstance(raw_das[-1], str) else system_dialog_acts[0]
+	if raw_das in system_dialog_acts:
+		return raw_das
+	return system_dialog_acts[0]
+
+
+def _seed_with_p4g_anchor(state: DialogSession, game: PersuasionGame, conversation: List[dict]) -> int:
+	dialog_items = _load_p4g_dialogs()
+	if not dialog_items:
+		return 0
+	max_attempts = min(20, len(dialog_items))
+	for _ in range(max_attempts):
+		dialog_id, dialog_entry = random.choice(dialog_items)
+		pairs_available = min(len(dialog_entry.get("dialog", [])), len(dialog_entry.get("label", [])))
+		if pairs_available <= 0:
+			continue
+		num_pairs = 2
+		seeded = 0
+		for idx in range(num_pairs):
+			turn = dialog_entry["dialog"][idx]
+			if not turn.get("ee"):
+				break
+			sys_utt_raw = " ".join(turn.get("er", [])).strip()
+			usr_utt_raw = " ".join(turn.get("ee", [])).strip()
+			if not sys_utt_raw and not usr_utt_raw:
+				continue
+			label_entry = dialog_entry["label"][idx]
+			sys_da = _map_system_da(label_entry.get("er"), game.system_agent.dialog_acts)
+			raw_usr_labels = label_entry.get("ee") or []
+			raw_usr_da = raw_usr_labels[-1] if raw_usr_labels else PersuasionGame.U_Neutral
+			usr_da = PersuasionGame.map_user_da(raw_usr_da)
+			sys_utt = sys_utt_raw or "..."
+			usr_utt = usr_utt_raw or "..."
+			state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
+			state.add_single(PersuasionGame.USR, usr_da, usr_utt)
+			conversation.append(
+				{
+					"turn": len(conversation),
+					"action_index": None,
+					"system_dialog_act": sys_da,
+					"system_utterance": sys_utt,
+					"user_selected_act": None,
+					"user_dialog_act": usr_da,
+					"user_utterance": usr_utt,
+					"turn_type": "anchor",
+					"anchor_dialog_id": dialog_id,
+				}
+			)
+			seeded += 1
+			if idx == pairs_available - 1:
+				break
+		if seeded > 0:
+			return seeded
+	logger.warning("Unable to sample anchor turns from P4G dataset; proceeding without anchors.")
+	return 0
+
 
 def _build_agents_and_game(args):
-    """
-    DÃ¹ng factory cÃ³ sáºµn cá»§a báº¡n Ä‘á»ƒ táº¡o backbone model + lá»›p chat.
-    """
-    backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
+	"""
+	Dùng factory có sẵn của bạn để tạo backbone model + lớp chat.
+	"""
+	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
 
-    ontology = PersuasionGame.get_game_ontology()
-    sys_das = ontology["system"]["dialog_acts"]
-    usr_das = ontology["user"]["dialog_acts"]
+	ontology = PersuasionGame.get_game_ontology()
+	sys_das = ontology["system"]["dialog_acts"]
+	usr_das = ontology["user"]["dialog_acts"]
 
-    # Persuader / Persuadee models (NLG)
-    # Enable sampling for Persuader so OpenLoop MCTS can cache
-    # multiple realizations per action and produce preference pairs.
-    system_name = PersuasionGame.SYS
-    user_name = PersuasionGame.USR
-    exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
+	# Persuader / Persuadee models (NLG)
+	# Enable sampling for Persuader so OpenLoop MCTS can cache
+	# multiple realizations per action and produce preference pairs.
+	system_name = PersuasionGame.SYS
+	user_name = PersuasionGame.USR
+	exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 
-    persuader = SysModel(
-        dialog_acts=sys_das,
-        backbone_model=backbone_model,
-        max_hist_num_turns=2,
-        conv_examples=[exp_dialog],
-        inference_args={
-            "max_new_tokens": 128,
-            "temperature": 1.1,
-            "do_sample": True,
-            "return_full_text": False,
-        },
-    )
-    persuadee = UsrModel(dialog_acts=usr_das, backbone_model=backbone_model,
-                         max_hist_num_turns=2, conv_examples=[exp_dialog],
-                         inference_args={"max_new_tokens": 64, "temperature": 0.5})
+	persuader = SysModel(
+		dialog_acts=sys_das,
+		backbone_model=backbone_model,
+		max_hist_num_turns=2,
+		conv_examples=[exp_dialog],
+		inference_args={
+			"max_new_tokens": 128,
+			"temperature": 1.1,
+			"do_sample": True,
+			"return_full_text": False,
+		},
+	)
+	persuadee = UsrModel(
+		dialog_acts=usr_das,
+		backbone_model=backbone_model,
+		max_hist_num_turns=2,
+		conv_examples=[exp_dialog],
+		inference_args={"max_new_tokens": 64, "temperature": 0.5},
+	)
 
-    # Planner (policy & value/heuristic)
-    planner = SysPlanner(dialog_acts=sys_das, max_hist_num_turns=2,
-                         user_dialog_acts=usr_das, user_max_hist_num_turns=2,
-                         generation_model=backbone_model, conv_examples=[exp_dialog])
-    
-    persuadee_planner = None
-    if args.user_mode in {"planner", "hybrid"}:
-        if getattr(args, "user_planner", "heuristic") == "llm":
-            persuadee_planner = PersuadeeLLMPlanner(
-                dialog_acts=persuadee.dialog_acts,
-                generation_model=backbone_model,
-                max_hist_num_turns=2,
-                seed=args.seed,
-            )
-        else:
-            persuadee_planner = PersuadeeHeuristicPlanner(
-                persuadee.dialog_acts,
-                donate_prob=args.planner_donate_prob,
-                seed=args.seed,
-            )
+	# Planner (policy & value/heuristic)
+	planner = SysPlanner(
+		dialog_acts=sys_das,
+		max_hist_num_turns=2,
+		user_dialog_acts=usr_das,
+		user_max_hist_num_turns=2,
+		generation_model=backbone_model,
+		conv_examples=[exp_dialog],
+	)
 
-    # Game
-    game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
-    return backbone_model, planner, persuadee_planner, game, sys_das
+	persuadee_planner = None
+	if args.user_mode in {"planner", "hybrid"}:
+		if getattr(args, "user_planner", "heuristic") == "llm":
+			persuadee_planner = PersuadeeLLMPlanner(
+				dialog_acts=persuadee.dialog_acts,
+				generation_model=backbone_model,
+				max_hist_num_turns=2,
+				seed=args.seed,
+			)
+		else:
+			persuadee_planner = PersuadeeHeuristicPlanner(
+				persuadee.dialog_acts,
+				donate_prob=args.planner_donate_prob,
+				seed=args.seed,
+			)
+
+	# Game
+	game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
+	return backbone_model, planner, persuadee_planner, game, sys_das
+
 
 def simulate_dialog(
 	game: PersuasionGame,
@@ -94,35 +197,25 @@ def simulate_dialog(
 	state = game.init_dialog()
 	conversation: List[dict] = []
 
-	# seed with a default opening exchange so heuristics expecting a user turn work
-	if len(state.history) == 0:
-		default_sys_da = (
-			PersuasionGame.S_Greeting
-			if PersuasionGame.S_Greeting in game.system_agent.dialog_acts
-			else game.system_agent.dialog_acts[0]
-		)
-		default_sys_utt = "Hello there! How are you doing today?"
-		default_usr_da = (
-			PersuasionGame.U_Neutral
-			if PersuasionGame.U_Neutral in game.user_agent.dialog_acts
-			else game.user_agent.dialog_acts[0]
-		)
-		default_usr_utt = "I'm doing well. What's this about?"
-		state.add_single(PersuasionGame.SYS, default_sys_da, default_sys_utt)
-		state.add_single(PersuasionGame.USR, default_usr_da, default_usr_utt)
-		conversation.append(
-			{
-				"turn": 0,
-				"action_index": None,
-				"system_dialog_act": default_sys_da,
-				"system_utterance": default_sys_utt,
-				"user_selected_act": None,
-				"user_dialog_act": default_usr_da,
-				"user_utterance": default_usr_utt,
-			}
-		)
+	seeded_pairs = _seed_with_p4g_anchor(state, game, conversation)
+	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
-	for turn_idx in range(max_turns):
+	persona_profile: Optional[dict] = None
+	get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
+	if callable(get_persona_fn):
+		try:
+			persona_profile = get_persona_fn(state)
+		except TypeError:
+			persona_profile = None
+	if persona_profile:
+		logger.info(
+			"Persona profile | Big-Five: %s | Decision-Making: %s",
+			persona_profile.get("big_five", "N/A"),
+			persona_profile.get("decision_making_style", "N/A"),
+		)
+		logger.info("Persona description: %s", persona_profile.get("description", ""))
+
+	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)
 		if final_outcome != 0.0:
 			break
@@ -152,13 +245,15 @@ def simulate_dialog(
 
 		conversation.append(
 			{
-				"turn": turn_idx + 1,
+				"turn": len(conversation),
 				"action_index": best_action,
 				"system_dialog_act": sys_da,
 				"system_utterance": sys_utt,
 				"user_selected_act": user_selected_act,
 				"user_dialog_act": user_da,
 				"user_utterance": user_utt,
+				"turn_type": "simulated",
+				"anchor_dialog_id": None,
 			}
 		)
 
@@ -169,6 +264,7 @@ def simulate_dialog(
 	return {
 		"turns": conversation,
 		"outcome": final_outcome,
+		"persona_profile": persona_profile,
 	}
 
 
@@ -230,22 +326,22 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum dialog turns before forcing termination.",
 	)
 	parser.add_argument(
-        "--user-mode",
-        type=str,
-        choices=["llm", "planner", "hybrid"],
-        default="llm",
-        help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
-    )
+		"--user-mode",
+		type=str,
+		choices=["llm", "planner", "hybrid"],
+		default="llm",
+		help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
+	)
 	parser.add_argument(
-        "--user-planner",
-        type=str,
-        choices=["heuristic", "llm"],
-        default="heuristic",
-        help=(
-            "When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (mapping + randomness) or 'llm' "
-            "(content-aware action selection from last 1–2 Persuader utterances)."
-        ),
-    )
+		"--user-planner",
+		type=str,
+		choices=["heuristic", "llm"],
+		default="heuristic",
+		help=(
+			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (mapping + randomness) or 'llm' "
+			"(content-aware action selection from last 1–2 Persuader utterances)."
+		),
+	)
 	parser.add_argument(
 		"--classify-user-act",
 		action="store_true",
@@ -275,7 +371,7 @@ def parse_args() -> argparse.Namespace:
 		type=Path,
 		default=None,
 		help="Optional path to save simulation transcripts (JSONL).",
- 	)
+	)
 	return parser.parse_args()
 
 
@@ -290,11 +386,11 @@ def main() -> None:
 	args = parse_args()
 	configure_logging(args.log_level)
 	set_determinitic_seed(args.seed)
+	random.seed(args.seed)
 
 	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
-	# logger.info("Using backbone model: %s", backbone_model.model_name)
 	logger.info("System dialog acts: %s", sys_das)
- 
+
 	mcts_cfg = dotdict(
 		{
 			"cpuct": 1.0,
@@ -318,16 +414,26 @@ def main() -> None:
 			user_planner=persuadee_planner,
 		)
 		results.append(sim_result)
+		pp = sim_result.get("persona_profile") or {}
+		if pp:
+			logger.info(
+				"Persona summary | Big-Five: %s | Decision-Making: %s",
+				pp.get("big_five", "N/A"),
+				pp.get("decision_making_style", "N/A"),
+			)
+			logger.info("Persona description: %s", pp.get("description", ""))
 		for turn in sim_result["turns"]:
 			logger.info(
-				"[Turn %d] SYS(%s): %s",
+				"[Turn %d][%s] SYS(%s): %s",
 				turn["turn"],
+				turn.get("turn_type", "simulated"),
 				turn["system_dialog_act"],
 				turn["system_utterance"],
 			)
 			logger.info(
-				"[Turn %d] USR(%s): %s",
+				"[Turn %d][%s] USR(%s): %s",
 				turn["turn"],
+				turn.get("turn_type", "simulated"),
 				turn["user_dialog_act"],
 				turn["user_utterance"],
 			)
@@ -345,4 +451,3 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
-

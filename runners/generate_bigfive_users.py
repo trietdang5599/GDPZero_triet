@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
+	"""Build the argparse schema and return parsed CLI arguments."""
 	parser = argparse.ArgumentParser(
 		description="Generate Big Five user personas via language model prompting."
 	)
@@ -128,10 +129,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def _ensure_parent_dir(path: Path) -> None:
+	"""Create parent directories for the provided file path."""
 	path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _normalize_output_path(base_path: Path, suffix: str) -> Path:
+	"""Return the path with the requested suffix, adding an extension if missing."""
 	if base_path.suffix:
 		return base_path.with_suffix(suffix)
 	return base_path.parent / f"{base_path.name}{suffix}"
@@ -144,6 +147,7 @@ def _call_generation_model(
 	temperature: float,
 	chat_messages: list[Dict[str, str]] | None = None,
 ) -> tuple[str, list[Dict[str, str]] | None]:
+	"""Invoke the text or chat generation model and return raw text plus updated chat history."""
 	inference_args: Dict[str, Any] = {
 		"max_new_tokens": max_new_tokens,
 		"temperature": temperature,
@@ -181,6 +185,7 @@ def _call_generation_model(
 	return response[0].get("generated_text", "").strip(), None
 
 def _extract_json_object(payload: str) -> Dict[str, Any]:
+	"""Extract a JSON object from model output, tolerating code fences and trailing commas."""
 	text = payload.strip()
 	if not text:
 		raise ValueError("Model returned an empty response.")
@@ -221,6 +226,7 @@ def _extract_json_object(payload: str) -> Dict[str, Any]:
 
 
 def _normalize_trait_value(value: Any, allowed_values: Sequence[str]) -> str:
+	"""Coerce dict/list/str responses into a single allowed attribute string."""
 	if isinstance(value, str):
 		cleaned = value.strip()
 		if cleaned in allowed_values:
@@ -238,6 +244,7 @@ def _normalize_trait_value(value: Any, allowed_values: Sequence[str]) -> str:
 
 
 def _accepted_attributes() -> Dict[str, set[str]]:
+	"""Return the set of allowed attribute identifiers for each trait group."""
 	return {
 		spec["label"]: set(spec["options"])  # type: ignore[index]
 		for spec in PERSONA_TYPE_SPECS
@@ -249,6 +256,7 @@ def _validate_persona(
 	allowed: Dict[str, set[str]],
 	trait_map: Dict[str, str],
 ) -> None:
+	"""Validate required fields and ensure every trait value is in the allowed set."""
 	required_atomic_keys = ["id", "description"]
 	missing_atomic = [key for key in required_atomic_keys if key not in persona]
 	if missing_atomic:
@@ -271,6 +279,7 @@ def _validate_persona(
 
 
 def _canonical_trait_map() -> Dict[str, str]:
+	"""Provide a mapping from JSON keys to the human-readable trait names."""
 	return {
 		spec["field"]: spec["label"]  # type: ignore[index]
 		for spec in PERSONA_TYPE_SPECS
@@ -278,6 +287,7 @@ def _canonical_trait_map() -> Dict[str, str]:
 
 
 def _validate_personas(personas: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+	"""Run validation on each persona and add metadata used downstream."""
 	persona_list = list(personas)
 	allowed = _accepted_attributes()
 	trait_map = _canonical_trait_map()
@@ -293,6 +303,7 @@ def _validate_personas(personas: Iterable[Dict[str, Any]]) -> List[Dict[str, Any
 
 
 def _write_personas(personas: List[Dict[str, Any]], destination: Path) -> None:
+	"""Write personas to disk in JSON Lines format at the given destination."""
 	_ensure_parent_dir(destination)
 	with destination.open("w", encoding="utf-8") as handle:
 		for persona in personas:
@@ -311,6 +322,7 @@ def _generate_persona(
 	temperature: float,
 	raw_output_path: Path,
 ) -> Dict[str, Any]:
+	"""Generate a single persona, retrying until a valid JSON object is produced."""
 	max_tokens = max(64, max_new_tokens)
 	retry_count = 0
 	retry_reason: str | None = None
@@ -417,6 +429,7 @@ def _generate_persona(
 
 
 def main() -> None:
+	"""Command-line entry point orchestrating persona generation and persistence."""
 	args = parse_args()
 	logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
