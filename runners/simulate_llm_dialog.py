@@ -17,6 +17,7 @@ import numpy as np
 from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.model_factory import create_factor_llm
+from core.gen_models import LocalModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
 from utils.utils import dotdict, set_determinitic_seed
@@ -133,9 +134,22 @@ def _build_agents_and_game(args):
 	user_name = PersuasionGame.USR
 	exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 
+	persuadee_backbone = backbone_model
+	if getattr(args, "persuadee_model_name", "") and args.persuadee_model_name != args.llm:
+		logger.info("Loading Persuadee model from Hugging Face: %s", args.persuadee_model_name)
+		persuadee_backbone = LocalModel(args.persuadee_model_name, trust_remote_code=True)
+
+	persuader_backbone = backbone_model
+	if getattr(args, "persuader_model_path", ""):
+		logger.info("Loading persuader checkpoint: %s", args.persuader_model_path)
+		persuader_backbone = LocalModel(args.persuader_model_path, trust_remote_code=True)
+	elif getattr(args, "persuader_model_name", ""):
+		logger.info("Loading persuader model from Hugging Face: %s", args.persuader_model_name)
+		persuader_backbone = LocalModel(args.persuader_model_name, trust_remote_code=True)
+
 	persuader = SysModel(
 		dialog_acts=sys_das,
-		backbone_model=backbone_model,
+		backbone_model=persuader_backbone,
 		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
 		inference_args={
@@ -147,7 +161,7 @@ def _build_agents_and_game(args):
 	)
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
-		backbone_model=backbone_model,
+		backbone_model=persuadee_backbone,
 		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
 		inference_args={"max_new_tokens": 64, "temperature": 0.5},
@@ -159,7 +173,7 @@ def _build_agents_and_game(args):
 		max_hist_num_turns=2,
 		user_dialog_acts=usr_das,
 		user_max_hist_num_turns=2,
-		generation_model=backbone_model,
+		generation_model=persuader_backbone,
 		conv_examples=[exp_dialog],
 	)
 
@@ -168,7 +182,7 @@ def _build_agents_and_game(args):
 		if getattr(args, "user_planner", "heuristic") == "llm":
 			persuadee_planner = PersuadeeLLMPlanner(
 				dialog_acts=persuadee.dialog_acts,
-				generation_model=backbone_model,
+				generation_model=persuadee_backbone,
 				max_hist_num_turns=2,
 				seed=args.seed,
 			)
@@ -181,7 +195,7 @@ def _build_agents_and_game(args):
 
 	# Game
 	game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
-	return backbone_model, planner, persuadee_planner, game, sys_das
+	return persuader_backbone, planner, persuadee_planner, game, sys_das
 
 
 def simulate_dialog(
@@ -294,6 +308,24 @@ def parse_args() -> argparse.Namespace:
 		"--local-trust-remote-code",
 		action="store_true",
 		help="Allow executing remote code when loading local HF model.",
+	)
+	parser.add_argument(
+		"--persuadee-model-name",
+		type=str,
+		default="",
+		help="Optional Hugging Face model identifier for the Persuadee agent (when different from --llm).",
+	)
+	parser.add_argument(
+		"--persuader-model-path",
+		type=str,
+		default="",
+		help="Checkpoint directory for the Persuader agent (e.g., DPO fine-tuned model).",
+	)
+	parser.add_argument(
+		"--persuader-model-name",
+		type=str,
+		default="",
+		help="Hugging Face model identifier for the Persuader agent (used if --persuader-model-path is not provided).",
 	)
 	parser.add_argument(
 		"--num-dialogs",
