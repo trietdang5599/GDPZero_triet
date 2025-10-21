@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Utility to fine-tune causal LLMs on PersuasionForGood-style dialogues."""
+"""Utility script orchestrating preference generation, SFT, and DPO fine-tuning."""
 
+#region Imports
 import argparse
 import json
 import pickle
@@ -23,9 +24,11 @@ from transformers import (
 )
 from transformers.trainer_utils import IntervalStrategy
 from datasets import Dataset as HFDataset
+#region Imports (continued)
 from accelerate.utils import set_seed
+#endregion Imports
 
-
+#region Optional third-party integrations
 try:
     from trl import DPOTrainer, DPOConfig
 except ImportError:  # pragma: no cover - optional dependency
@@ -42,12 +45,14 @@ try:
     from transformers import BitsAndBytesConfig
 except ImportError:  # pragma: no cover - optional dependency
     BitsAndBytesConfig = None
+#endregion Optional third-party integrations
 
 def cuda_bf16_supported() -> bool:
     return torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
 
 
 def configure_gc_wrapper(module, use_reentrant: bool):
+    """Wrap gradient checkpointing to force desired reentrant behaviour."""
     if not hasattr(module, "gradient_checkpointing_enable"):
         return
     original_gc_enable = module.gradient_checkpointing_enable
@@ -64,6 +69,7 @@ def configure_gc_wrapper(module, use_reentrant: bool):
     module.gradient_checkpointing_enable = wrapped_gc_enable
 
 
+#region Runtime setup (rank, TF32, etc.)
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
 print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
@@ -82,9 +88,12 @@ if torch.cuda.is_available():
         torch.backends.cudnn.allow_tf32 = True
     except AttributeError:
         pass
+#endregion Runtime setup (rank, TF32, etc.)
 
 
+#region Model loading helpers
 def resolve_torch_dtype(args) -> Optional[torch.dtype]:
+    """Choose torch dtype based on CLI flags and hardware support."""
     if args.bf16 and cuda_bf16_supported():
         return torch.bfloat16
     if args.fp16:
@@ -93,6 +102,7 @@ def resolve_torch_dtype(args) -> Optional[torch.dtype]:
 
 
 def build_quantization_config(args) -> Optional["BitsAndBytesConfig"]:
+    """Build bitsandbytes quantization config when 4bit/8bit options are enabled."""
     if not (args.load_in_4bit or args.load_in_8bit):
         return None
     if BitsAndBytesConfig is None:
@@ -113,6 +123,7 @@ def build_quantization_config(args) -> Optional["BitsAndBytesConfig"]:
 
 
 def load_causal_model(model_name: str, args, tokenizer=None):
+    """Load the causal LM with optional quantization, precision, and device mapping."""
     quant_config = build_quantization_config(args)
     torch_dtype = resolve_torch_dtype(args)
     load_kwargs: Dict[str, Any] = {}
@@ -144,8 +155,10 @@ def load_causal_model(model_name: str, args, tokenizer=None):
             pass
         model.config.pad_token_id = tokenizer.pad_token_id
     return model
+#endregion Model loading helpers
 
 
+#region Data structures
 @dataclass
 class ConversationExample:
     prompt: str
@@ -164,6 +177,7 @@ class PreferenceExample:
 
 
 def load_raw_records(dataset_path: Path) -> List[Dict[str, Any]]:
+    """Load raw dialogue records from pickle/JSON/JSONL files into a list of dicts."""
     suffix = dataset_path.suffix.lower()
     if suffix == ".pkl":
         with dataset_path.open("rb") as f:
@@ -206,6 +220,7 @@ def load_raw_records(dataset_path: Path) -> List[Dict[str, Any]]:
 
 
 def join_utterances(raw: Any) -> str:
+    """Normalise utterance fields (string or list of strings) into a single strip()ed string."""
     if raw is None:
         return ""
     if isinstance(raw, str):
@@ -224,6 +239,7 @@ def build_examples(
     system_role: str,
     user_role: str,
 ) -> List[ConversationExample]:
+    """Construct SFT examples consisting of (prompt, completion) pairs."""
     examples: List[ConversationExample] = []
     for record in records:
         dialog = record.get("dialog")
@@ -268,6 +284,7 @@ def build_preference_examples(
     rng: Optional[random.Random],
     num_negatives: int = 1,
 ) -> List[PreferenceExample]:
+    """Convert raw dialogs or explicit triples into preference training examples."""
     records = list(records)
     if rng is None:
         rng = random.Random()
@@ -335,6 +352,7 @@ def build_preference_examples(
 
 
 class ConversationDataset(Dataset):
+    """Minimal Dataset wrapper returning tokenised prompt/completion pairs."""
     def __init__(
         self,
         data: Sequence[ConversationExample],
@@ -382,6 +400,7 @@ class ConversationDataset(Dataset):
 
 
 def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> AutoModelForCausalLM:
+    """Attach LoRA adapters (and k-bit preparation) when requested."""
     if not args.use_lora:
         return model
     if LoraConfig is None or get_peft_model is None:
@@ -411,9 +430,12 @@ def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> Au
     except AttributeError:
         pass
     return model
+#endregion Data structures
 
 
+#region Argument parsing
 def parse_args() -> argparse.Namespace:
+    """Parse CLI options controlling dataset paths, training hyperparameters, and LoRA/quantisation settings."""
     parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data (SFT or DPO).")
     parser.add_argument("--dataset-path", type=Path, default=Path("data/p4g/300_dialog_turn_based.pkl"), help="Path to dialogue dataset (.pkl, .json, .jsonl).")
     parser.add_argument("--model-name", type=str, default="gpt2", help="Hugging Face model identifier to fine-tune.")
@@ -464,8 +486,10 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated list of module names to apply LoRA to.",
     )
     return parser.parse_args()
+#endregion Argument parsing
 
 
+#region Main training logic
 def main() -> None:
     args = parse_args()
 
@@ -508,8 +532,6 @@ def main() -> None:
             system_role=args.system_role,
             user_role=args.user_role,
         )
-        for ex in examples[:3]:
-            print(f"Prompt: {ex.prompt}\nCompletion: {ex.completion}\n---")
         if not examples:
             raise ValueError("No training examples constructed from dataset.")
 
@@ -585,9 +607,6 @@ def main() -> None:
         )
         if not pref_examples:
             raise ValueError("No preference examples constructed from dataset.")
-        for ex in pref_examples[:3]:
-            print(f"Prompt: {ex.prompt}\nChosen: {ex.chosen}\nRejected: {ex.rejected}\n---")
-            
         rng.shuffle(pref_examples)
         if args.max_samples and args.max_samples > 0:
             pref_examples = pref_examples[: args.max_samples]
@@ -668,3 +687,4 @@ except Exception:
 
 if __name__ == "__main__":
     main()
+#endregion Main training logic
