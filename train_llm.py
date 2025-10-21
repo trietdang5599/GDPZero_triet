@@ -85,14 +85,26 @@ def load_causal_model(model_name: str, args, tokenizer=None):
     quant_config = build_quantization_config(args)
     torch_dtype = resolve_torch_dtype(args)
     load_kwargs: Dict[str, Any] = {}
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+
+    def resolve_device_map() -> Optional[Any]:
+        if args.device_map:
+            dm = args.device_map
+            if isinstance(dm, str) and dm.lower() == "auto":
+                return {"": local_rank} if world_size != 1 else dm
+            return dm
+        if quant_config is not None and torch.cuda.is_available():
+            return {"": local_rank}
+        return None
+
+    device_map = resolve_device_map()
     if quant_config is not None:
         load_kwargs["quantization_config"] = quant_config
-        load_kwargs["device_map"] = args.device_map or "auto"
-    else:
-        if args.device_map:
-            load_kwargs["device_map"] = args.device_map
-        if torch_dtype is not None:
-            load_kwargs["torch_dtype"] = torch_dtype
+    elif torch_dtype is not None:
+        load_kwargs["torch_dtype"] = torch_dtype
+    if device_map is not None:
+        load_kwargs["device_map"] = device_map
     model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
     if tokenizer is not None and tokenizer.pad_token_id is not None and model.config.pad_token_id != tokenizer.pad_token_id:
         try:
