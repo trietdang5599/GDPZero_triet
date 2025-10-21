@@ -10,7 +10,7 @@ ACCELERATE_BIN="${ACCELERATE_BIN:-accelerate}"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 DATASET_PATH="${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl"
-PREF_PATH="${REPO_ROOT}/data/p4g/preference_pair.jsonl"
+PREF_PATH="${PREF_PATH:-${REPO_ROOT}/data/p4g/preference_pair.jsonl}"
 SFT_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft"
 DPO_OUTPUT="${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo"
 DEFAULT_ACCELERATE_CFG="${REPO_ROOT}/config/accelerate_config.yaml"
