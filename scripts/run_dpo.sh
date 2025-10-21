@@ -18,8 +18,24 @@ SFT_MODEL_PATH="${SFT_MODEL_PATH:-outputs/${MODEL_NAME//\//_}-sft}"
 PREF_PATH="${PREF_PATH:-preference_pairs.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/${MODEL_NAME//\//_}-dpo}"
 SEED="${SEED:-42}"
+USE_LORA="${USE_LORA:-1}"
+LORA_R="${LORA_R:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
+LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
+
+LORA_ARGS=()
+if [[ "${USE_LORA}" != "0" ]]; then
+  LORA_ARGS=(
+    --use-lora
+    --lora-r "${LORA_R}"
+    --lora-alpha "${LORA_ALPHA}"
+    --lora-dropout "${LORA_DROPOUT}"
+    --lora-target-modules "${LORA_TARGET_MODULES}"
+  )
+fi
 
 accelerate launch \
   --main_process_port "${MASTER_PORT}" \
@@ -42,5 +58,6 @@ accelerate launch \
   --gradient-checkpointing \
   --load-in-4bit \
   --bf16 \
+  "${LORA_ARGS[@]}" \
   --seed "${SEED}" \
   "$@"
