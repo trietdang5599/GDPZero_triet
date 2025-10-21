@@ -23,6 +23,7 @@ LORA_R="${LORA_R:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
+CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-1}"
 
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 
@@ -35,6 +36,11 @@ if [[ "${USE_LORA}" != "0" ]]; then
     --lora-dropout "${LORA_DROPOUT}"
     --lora-target-modules "${LORA_TARGET_MODULES}"
   )
+fi
+
+CHECKPOINT_ARGS=()
+if [[ "${CHECKPOINT_REENTRANT}" != "0" ]]; then
+  CHECKPOINT_ARGS+=(--checkpoint-reentrant)
 fi
 
 accelerate launch \
@@ -56,6 +62,7 @@ accelerate launch \
   --max-length "${MAX_LENGTH:-512}" \
   --dpo-beta "${DPO_BETA:-0.1}" \
   --gradient-checkpointing \
+  "${CHECKPOINT_ARGS[@]}" \
   --load-in-4bit \
   --bf16 \
   "${LORA_ARGS[@]}" \
