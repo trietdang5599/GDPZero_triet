@@ -142,7 +142,20 @@ def _build_agents_and_game(args):
 	persuader_backbone = backbone_model
 	if getattr(args, "persuader_model_path", ""):
 		logger.info("Loading persuader checkpoint: %s", args.persuader_model_path)
-		persuader_backbone = LocalModel(args.persuader_model_path, trust_remote_code=True)
+		model_kwargs = {}
+		if getattr(args, "persuader_base_model", ""):
+			model_kwargs["base_model_name_or_path"] = args.persuader_base_model
+		elif getattr(args, "persuader_model_name", ""):
+			model_kwargs["base_model_name_or_path"] = args.persuader_model_name
+		elif getattr(args, "persuadee_model_name", ""):
+			model_kwargs["base_model_name_or_path"] = args.persuadee_model_name
+		else:
+			model_kwargs["base_model_name_or_path"] = args.llm
+		persuader_backbone = LocalModel(
+			args.persuader_model_path,
+			trust_remote_code=True,
+			model_kwargs=model_kwargs or None,
+		)
 	elif getattr(args, "persuader_model_name", ""):
 		logger.info("Loading persuader model from Hugging Face: %s", args.persuader_model_name)
 		persuader_backbone = LocalModel(args.persuader_model_name, trust_remote_code=True)
@@ -320,6 +333,12 @@ def parse_args() -> argparse.Namespace:
 		type=str,
 		default="",
 		help="Checkpoint directory for the Persuader agent (e.g., DPO fine-tuned model).",
+	)
+	parser.add_argument(
+		"--persuader-base-model",
+		type=str,
+		default="",
+		help="Base model identifier used when loading a Persuader adapter checkpoint.",
 	)
 	parser.add_argument(
 		"--persuader-model-name",
