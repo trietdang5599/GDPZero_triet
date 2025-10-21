@@ -20,10 +20,9 @@ main_training_function: main
 debug: false
 
 # DDP kwargs (rất quan trọng cho LoRA)
-kwargs_handlers:
-  - DistributedDataParallelKwargs:
-      find_unused_parameters: false
-      static_graph: true
+distributed_data_parallel_kwargs:
+  find_unused_parameters: false
+  static_graph: true
 
 # TPU (không dùng)
 tpu_env: []
