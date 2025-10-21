@@ -19,11 +19,6 @@ gpu_ids: all               # hoặc liệt kê cụ thể: "0,1"
 main_training_function: main
 debug: false
 
-# DDP kwargs (rất quan trọng cho LoRA)
-distributed_data_parallel_kwargs:
-  find_unused_parameters: false
-  static_graph: true
-
 # TPU (không dùng)
 tpu_env: []
 tpu_use_cluster: false
