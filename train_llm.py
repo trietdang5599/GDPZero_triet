@@ -46,6 +46,23 @@ def cuda_bf16_supported() -> bool:
     return torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
 
 
+def ensure_non_reentrant_gc(module):
+    if not hasattr(module, "gradient_checkpointing_enable"):
+        return
+    original_gc_enable = module.gradient_checkpointing_enable
+
+    def wrapped_gc_enable(*args, **kwargs):
+        if "use_reentrant" not in kwargs:
+            kwargs["use_reentrant"] = False
+        try:
+            return original_gc_enable(*args, **kwargs)
+        except TypeError:
+            kwargs.pop("use_reentrant", None)
+            return original_gc_enable(*args, **kwargs)
+
+    module.gradient_checkpointing_enable = wrapped_gc_enable
+
+
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
 print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
@@ -439,6 +456,7 @@ def main() -> None:
     model = load_causal_model(args.model_name, args, tokenizer=tokenizer)
 
     model = maybe_wrap_lora(model, args)
+    ensure_non_reentrant_gc(model)
     if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         try:
             model.gradient_checkpointing_enable()
