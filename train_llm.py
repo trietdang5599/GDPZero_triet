@@ -47,14 +47,14 @@ def cuda_bf16_supported() -> bool:
     return torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
 
 
-def ensure_non_reentrant_gc(module):
+def configure_gc_wrapper(module, use_reentrant: bool):
     if not hasattr(module, "gradient_checkpointing_enable"):
         return
     original_gc_enable = module.gradient_checkpointing_enable
 
     def wrapped_gc_enable(*args, **kwargs):
         if "use_reentrant" not in kwargs:
-            kwargs["use_reentrant"] = False
+            kwargs["use_reentrant"] = use_reentrant
         try:
             return original_gc_enable(*args, **kwargs)
         except TypeError:
@@ -441,6 +441,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable gradient checkpointing (disables use_cache automatically).",
     )
+    parser.add_argument(
+        "--checkpoint-reentrant",
+        action="store_true",
+        help="Use re-entrant checkpointing hooks (set if you encounter DDP ready-only-once warnings).",
+    )
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit via bitsandbytes.")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit via bitsandbytes.")
     parser.add_argument("--device-map", type=str, default=None, help="Optional device_map for model loading (e.g. 'auto').")
@@ -475,7 +480,7 @@ def main() -> None:
     model = load_causal_model(args.model_name, args, tokenizer=tokenizer)
 
     model = maybe_wrap_lora(model, args)
-    ensure_non_reentrant_gc(model)
+    configure_gc_wrapper(model, use_reentrant=args.checkpoint_reentrant)
     if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         try:
             model.gradient_checkpointing_enable()

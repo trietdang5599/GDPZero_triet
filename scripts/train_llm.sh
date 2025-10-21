@@ -29,6 +29,7 @@ LOAD_IN_8BIT="${LOAD_IN_8BIT:-0}"
 DEVICE_MAP="${DEVICE_MAP:-}"
 FP16="${FP16:-0}"
 BF16="${BF16:-0}"
+CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-0}"
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-0}"
@@ -179,6 +180,9 @@ fi
 GRADIENT_ARGS=()
 if [[ "${GRADIENT_CHECKPOINTING}" != "0" ]]; then
 	GRADIENT_ARGS+=(--gradient-checkpointing)
+fi
+if [[ "${CHECKPOINT_REENTRANT}" != "0" ]]; then
+	GRADIENT_ARGS+=(--checkpoint-reentrant)
 fi
 PRECISION_ARGS=()
 if [[ "${FP16}" != "0" ]]; then
