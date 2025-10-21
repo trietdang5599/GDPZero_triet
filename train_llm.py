@@ -32,10 +32,11 @@ except ImportError:  # pragma: no cover - optional dependency
     DPOTrainer = None
 
 try:
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 except ImportError:
     LoraConfig = None
     get_peft_model = None
+    prepare_model_for_kbit_training = None
 
 try:
     from transformers import BitsAndBytesConfig
@@ -68,6 +69,19 @@ torch.cuda.set_device(local_rank)
 print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
 print("CUDA_VISIBLE_DEVICES=", os.getenv("CUDA_VISIBLE_DEVICES"))
 print("cuda_count=", torch.cuda.device_count())
+try:
+    torch.set_float32_matmul_precision("high")
+except AttributeError:
+    pass
+if torch.cuda.is_available():
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+    except AttributeError:
+        pass
+    try:
+        torch.backends.cudnn.allow_tf32 = True
+    except AttributeError:
+        pass
 
 
 def resolve_torch_dtype(args) -> Optional[torch.dtype]:
@@ -372,6 +386,11 @@ def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> Au
         return model
     if LoraConfig is None or get_peft_model is None:
         raise ImportError("peft is required for --use-lora. Install it with `pip install peft`. ")
+    if (args.load_in_4bit or args.load_in_8bit) and prepare_model_for_kbit_training is not None:
+        try:
+            model = prepare_model_for_kbit_training(model)
+        except Exception as exc:  # pragma: no cover - best effort
+            print(f"[warn] Failed to prepare model for k-bit training: {exc}")
     target_modules = [mod.strip() for mod in args.lora_target_modules.split(",") if mod.strip()]
     if hasattr(model, "enable_input_require_grads"):
         try:
@@ -520,6 +539,7 @@ def main() -> None:
             ddp_backend="nccl",
             ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
             gradient_checkpointing=args.gradient_checkpointing,
+            optim="adamw_torch",
             # 🔧 tránh treo do DataLoader
             # dataloader_num_workers=0,           # debug/stable nhất
             # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
@@ -630,6 +650,7 @@ def main() -> None:
             gradient_checkpointing=args.gradient_checkpointing,
             do_train=True,
             do_eval=do_eval,
+            optim="adamw_torch",
         )
 
         dpo_trainer = DPOTrainer(
