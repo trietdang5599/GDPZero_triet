@@ -12,6 +12,7 @@ same_network: true
 rdzv_backend: static
 
 # GPU
+static_graph: true
 use_cpu: false
 gpu_ids: all               # hoặc liệt kê cụ thể: "0,1"
 

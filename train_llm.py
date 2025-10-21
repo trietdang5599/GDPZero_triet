@@ -545,24 +545,7 @@ def main() -> None:
             ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
             gradient_checkpointing=args.gradient_checkpointing,
             optim="adamw_torch",
-            # 🔧 tránh treo do DataLoader
-            # dataloader_num_workers=0,           # debug/stable nhất
-            # dataloader_drop_last=True,          # batch lẻ → bỏ (tránh process nào đó thiếu batch)
-            # dataloader_pin_memory=False,        # giảm treo do pinned mem
-
-            # # ✅ tên tham số đúng
-            # eval_strategy="epoch" if eval_dataset is not None else "no",
-            # save_strategy="epoch",
-            # save_total_limit=args.save_total_limit,
-            # report_to="none",
-
-            # # DDP flags
-            # ddp_backend="nccl",
-            # ddp_find_unused_parameters=False,
-
-            # # Precision (bật fp16 nếu cậu đã confirm OK)
-            # fp16=(args.fp16 and torch.cuda.is_available()),
-            # bf16=False,
+            dataloader_drop_last=True
         )
         
         trainer = Trainer(
@@ -653,6 +636,7 @@ def main() -> None:
             max_length=effective_max_length,
             max_prompt_length=min(effective_max_length, args.max_length),
             gradient_checkpointing=args.gradient_checkpointing,
+            ddp_find_unused_parameters=False,
             do_train=True,
             do_eval=do_eval,
             optim="adamw_torch",
@@ -673,6 +657,14 @@ def main() -> None:
 
     tokenizer.save_pretrained(args.output_dir)
 
+import torch.distributed as dist
+
+try:
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+except Exception:
+    pass
 
 if __name__ == "__main__":
     main()
