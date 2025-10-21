@@ -12,12 +12,17 @@ DPO_OUTPUT="${DPO_OUTPUT:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo}"
 
 mkdir -p "$(dirname "${PREF_PATH}")" "${SFT_OUTPUT}" "${DPO_OUTPUT}"
 
-echo "=== Step 1/3: Build preference pairs ==="
-echo "Preference pairs will be saved to: ${PREF_PATH}"
-OUTPUT_PATH="${PREF_PATH}" \
-DATASET_PATH="${DATASET_PATH}" \
-bash "${SCRIPT_DIR}/run_build_prefs.sh" "$@"
-[[ -f "${PREF_PATH}" ]] || { echo "[error] Preference pairs not found at ${PREF_PATH}" >&2; exit 1; }
+if [[ -f "${PREF_PATH}" ]]; then
+  echo "=== Step 1/3: Build preference pairs (skipped; using existing file) ==="
+  echo "Using preference pairs at: ${PREF_PATH}"
+else
+  echo "=== Step 1/3: Build preference pairs ==="
+  echo "Preference pairs will be saved to: ${PREF_PATH}"
+  OUTPUT_PATH="${PREF_PATH}" \
+  DATASET_PATH="${DATASET_PATH}" \
+  bash "${SCRIPT_DIR}/run_build_prefs.sh" "$@"
+  [[ -f "${PREF_PATH}" ]] || { echo "[error] Preference pairs not found at ${PREF_PATH}" >&2; exit 1; }
+fi
 
 echo "=== Step 2/3: Supervised fine-tuning ==="
 echo "SFT checkpoint directory: ${SFT_OUTPUT}"
