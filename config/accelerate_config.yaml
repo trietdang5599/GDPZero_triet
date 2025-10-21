@@ -1,18 +1,31 @@
-find_unused_parameters: false
-static_graph: true
+# ===== Accelerate config =====
 compute_environment: LOCAL_MACHINE
-debug: false
 distributed_type: MULTI_GPU
-downcast_bf16: 'no'
-gpu_ids: all
-machine_rank: 0
-main_training_function: main
 mixed_precision: 'bf16'
+downcast_bf16: 'no'
+
+# Số process phải KHỚP số GPU đang chạy (ví dụ 2 GPU => 2)
 num_machines: 1
-num_processes: 8
-rdzv_backend: static
+num_processes: 2           # <— đổi cho khớp cụm của bạn (2 nếu GPU_IDS=0,1)
+machine_rank: 0
 same_network: true
+rdzv_backend: static
+
+# GPU
+use_cpu: false
+gpu_ids: all               # hoặc liệt kê cụ thể: "0,1"
+
+# Entry
+main_training_function: main
+debug: false
+
+# DDP kwargs (rất quan trọng cho LoRA)
+kwargs_handlers:
+  - DistributedDataParallelKwargs:
+      find_unused_parameters: false
+      static_graph: true
+
+# TPU (không dùng)
 tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
-use_cpu: false
