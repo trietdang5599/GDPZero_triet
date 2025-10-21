@@ -24,6 +24,11 @@ LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
+LOAD_IN_4BIT="${LOAD_IN_4BIT:-0}"
+LOAD_IN_8BIT="${LOAD_IN_8BIT:-0}"
+DEVICE_MAP="${DEVICE_MAP:-}"
+FP16="${FP16:-0}"
+BF16="${BF16:-0}"
 
 NUM_GPUS="${NUM_GPUS:-1}"        # số GPU bạn muốn dùng
 MASTER_PORT="${MASTER_PORT:-0}"
@@ -172,6 +177,29 @@ GRADIENT_ARGS=()
 if [[ "${GRADIENT_CHECKPOINTING}" != "0" ]]; then
 	GRADIENT_ARGS+=(--gradient-checkpointing)
 fi
+PRECISION_ARGS=()
+if [[ "${FP16}" != "0" ]]; then
+	PRECISION_ARGS+=(--fp16)
+fi
+if [[ "${BF16}" != "0" ]]; then
+	PRECISION_ARGS+=(--bf16)
+fi
+QUANT_ARGS=()
+if [[ "${LOAD_IN_4BIT}" != "0" ]]; then
+	QUANT_ARGS+=(--load-in-4bit)
+fi
+if [[ "${LOAD_IN_8BIT}" != "0" ]]; then
+	QUANT_ARGS+=(--load-in-8bit)
+fi
+if [[ -n "${DEVICE_MAP}" ]]; then
+	QUANT_ARGS+=(--device-map "${DEVICE_MAP}")
+fi
+COMMON_ARGS=(
+	"${LORA_ARGS[@]}"
+	"${GRADIENT_ARGS[@]}"
+	"${PRECISION_ARGS[@]}"
+	"${QUANT_ARGS[@]}"
+)
 
 if (( SKIP_SFT == 0 )); then
 	echo "[2/3] Running supervised fine-tuning ..."
@@ -185,8 +213,7 @@ if (( SKIP_SFT == 0 )); then
 	  --num-train-epochs 10 \
 	  --learning-rate 2e-5 \
 	  --max-length 512 \
-	  "${LORA_ARGS[@]}" \
-	  "${GRADIENT_ARGS[@]}" \
+	  "${COMMON_ARGS[@]}" \
 	  "$@"
 else
 	echo "[2/3] Supervised fine-tuning skipped (checkpoint already present)."
@@ -205,9 +232,8 @@ run_training \
   --learning-rate 1e-5 \
   --max-length 512 \
   --dpo-beta 0.1 \
-  "${LORA_ARGS[@]}" \
-  "${GRADIENT_ARGS[@]}" \
-  "$@"
+	"${COMMON_ARGS[@]}" \
+	"$@"
 
 echo "Training pipeline complete."
 echo "SFT checkpoint : ${SFT_OUTPUT}"

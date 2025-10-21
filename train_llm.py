@@ -37,11 +37,70 @@ except ImportError:
     LoraConfig = None
     get_peft_model = None
 
+try:
+    from transformers import BitsAndBytesConfig
+except ImportError:  # pragma: no cover - optional dependency
+    BitsAndBytesConfig = None
+
+def cuda_bf16_supported() -> bool:
+    return torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+
+
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
 print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
 print("CUDA_VISIBLE_DEVICES=", os.getenv("CUDA_VISIBLE_DEVICES"))
 print("cuda_count=", torch.cuda.device_count())
+
+
+def resolve_torch_dtype(args) -> Optional[torch.dtype]:
+    if args.bf16 and cuda_bf16_supported():
+        return torch.bfloat16
+    if args.fp16:
+        return torch.float16
+    return None
+
+
+def build_quantization_config(args) -> Optional["BitsAndBytesConfig"]:
+    if not (args.load_in_4bit or args.load_in_8bit):
+        return None
+    if BitsAndBytesConfig is None:
+        raise RuntimeError("bitsandbytes is required for 4bit/8bit loading but is not installed.")
+    if args.load_in_4bit and args.load_in_8bit:
+        raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
+    if args.load_in_4bit:
+        compute_dtype = resolve_torch_dtype(args) or torch.float16
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+    if args.load_in_8bit:
+        return BitsAndBytesConfig(load_in_8bit=True)
+    return None
+
+
+def load_causal_model(model_name: str, args, tokenizer=None):
+    quant_config = build_quantization_config(args)
+    torch_dtype = resolve_torch_dtype(args)
+    load_kwargs: Dict[str, Any] = {}
+    if quant_config is not None:
+        load_kwargs["quantization_config"] = quant_config
+        load_kwargs["device_map"] = args.device_map or "auto"
+    else:
+        if args.device_map:
+            load_kwargs["device_map"] = args.device_map
+        if torch_dtype is not None:
+            load_kwargs["torch_dtype"] = torch_dtype
+    model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
+    if tokenizer is not None and tokenizer.pad_token_id is not None and model.config.pad_token_id != tokenizer.pad_token_id:
+        try:
+            model.resize_token_embeddings(len(tokenizer))
+        except NotImplementedError:
+            pass
+        model.config.pad_token_id = tokenizer.pad_token_id
+    return model
 
 
 @dataclass
@@ -327,12 +386,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--system-role", type=str, default="Persuader", help="Role label for system turns.")
     parser.add_argument("--user-role", type=str, default="Persuadee", help="Role label for user turns.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
-    parser.add_argument("--fp16", action="store_true", help="Use mixed precision if available.")
+    parser.add_argument("--fp16", action="store_true", help="Use float16 mixed precision if available.")
+    parser.add_argument("--bf16", action="store_true", help="Use bfloat16 mixed precision if available.")
     parser.add_argument(
         "--gradient-checkpointing",
         action="store_true",
         help="Enable gradient checkpointing (disables use_cache automatically).",
     )
+    parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit via bitsandbytes.")
+    parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit via bitsandbytes.")
+    parser.add_argument("--device-map", type=str, default=None, help="Optional device_map for model loading (e.g. 'auto').")
     parser.add_argument("--logging-steps", type=int, default=25, help="Trainer logging frequency.")
     parser.add_argument("--save-total-limit", type=int, default=2, help="Max number of saved checkpoints.")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="Inverse temperature for the DPO loss.")
@@ -361,10 +424,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token or "<|pad|>"})
-    model = AutoModelForCausalLM.from_pretrained(args.model_name)
-    if tokenizer.pad_token_id is not None and model.config.pad_token_id != tokenizer.pad_token_id:
-        model.resize_token_embeddings(len(tokenizer))
-        model.config.pad_token_id = tokenizer.pad_token_id
+    model = load_causal_model(args.model_name, args, tokenizer=tokenizer)
 
     model = maybe_wrap_lora(model, args)
     if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
@@ -426,6 +486,7 @@ def main() -> None:
             save_total_limit=args.save_total_limit,
             report_to="none",
             fp16=args.fp16 and torch.cuda.is_available(),
+            bf16=args.bf16 and cuda_bf16_supported(),
             ddp_backend="nccl",
             ddp_find_unused_parameters=False,   # RẤT QUAN TRỌNG cho LoRA
             gradient_checkpointing=args.gradient_checkpointing,
@@ -511,10 +572,7 @@ def main() -> None:
         )
 
         reference_name = args.reference_model_name or args.model_name
-        reference_model = AutoModelForCausalLM.from_pretrained(reference_name)
-        if tokenizer.pad_token_id is not None and reference_model.config.pad_token_id != tokenizer.pad_token_id:
-            reference_model.resize_token_embeddings(len(tokenizer))
-            reference_model.config.pad_token_id = tokenizer.pad_token_id
+        reference_model = load_causal_model(reference_name, args, tokenizer=tokenizer)
         reference_model.requires_grad_(False)
         reference_model.eval()
 
@@ -534,7 +592,7 @@ def main() -> None:
             save_total_limit=args.save_total_limit,
             report_to=[],
             fp16=args.fp16 and torch.cuda.is_available(),
-            bf16=False,
+            bf16=args.bf16 and cuda_bf16_supported(),
             remove_unused_columns=False,
             beta=args.dpo_beta,
             max_length=effective_max_length,
