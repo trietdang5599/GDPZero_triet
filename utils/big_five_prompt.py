@@ -39,27 +39,6 @@ def format_persona_catalog() -> str:
 	return "\n".join(lines)
 
 
-LIST_PROMPT_TEMPLATE = dedent(
-	"""
-	You need to incorporate the following persona attributes and generate a cohesive persona description.
-	Select exactly one attribute label from each persona type and keep the description easy to understand.
-	Age must fall between 28 and 40, and occupations must vary across personas.
-	{persona_catalog}
-
-	Please generate a list of {num_personas} fictional user profiles.
-	"""
-).strip()
-
-
-def build_big_five_prompt(num_personas: int) -> str:
-	if num_personas <= 0:
-		raise ValueError("num_personas must be a positive integer.")
-	return LIST_PROMPT_TEMPLATE.format(
-		num_personas=num_personas,
-		persona_catalog=format_persona_catalog(),
-	)
-
-
 SINGLE_PERSONA_PROMPT_TEMPLATE = dedent(
 	"""
 	You need to incorporate the following persona attributes and generate a cohesive persona description.
