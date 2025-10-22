@@ -198,6 +198,7 @@ class PersuadeeModel(DialogModel):
 			"i can't give",
 			"i cannot give",
 			"i won't give",
+			"i won't be able to donate",
 		]
 		for phrase in negative_phrases:
 			if phrase in normalized:

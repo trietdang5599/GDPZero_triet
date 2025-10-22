@@ -112,15 +112,7 @@ class PersuasionGame(DialogGame):
 		}
 
 	def get_dialog_ended(self, state) -> float:
-		# terminate if there is a <donate> action in persuadee resp
-		if len(state) >= self.max_conv_turns:
-			logger.debug(
-				"Dialog ended with persuasion failure (reason=max_turns, turns=%s, last_state=%s)",
-				len(state),
-				state[-1] if state else None,
-			)
-			return -1.0
-
+		# check persuadee actions first
 		for turn_idx, (role, da, utt) in enumerate(state):
 			if da == PersuasionGame.U_Donate:
 				logger.debug(
@@ -138,6 +130,15 @@ class PersuasionGame(DialogGame):
 					utt,
 				)
 				return -1.0
+
+		# fallback to max turn termination if nothing triggered
+		if len(state) >= self.max_conv_turns:
+			logger.debug(
+				"Dialog ended with persuasion failure (reason=max_turns, turns=%s, last_state=%s)",
+				len(state),
+				state[-1] if state else None,
+			)
+			return -1.0
 		return 0.0
 
 	@staticmethod
