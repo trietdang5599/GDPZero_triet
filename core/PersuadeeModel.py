@@ -226,14 +226,14 @@ class PersuadeeModel(DialogModel):
 		]
 		if any(phrase in normalized for phrase in commit_phrases):
 			return True
-		amount_pattern = re.compile(
-			r"(?:\$|\busd\b\s*)\s*\d+(?:\.\d+)?\s*(?:dollars?|usd)?|"
-			r"\d+(?:\.\d+)?\s*(?:dollars?|bucks?|usd|eur|euro|pounds?)",
-			re.IGNORECASE,
-		)
+		# amount_pattern = re.compile(
+		# 	r"(?:\$|\busd\b\s*)\s*\d+(?:\.\d+)?\s*(?:dollars?|usd)?|"
+		# 	r"\d+(?:\.\d+)?\s*(?:dollars?|bucks?|usd|eur|euro|pounds?)",
+		# 	re.IGNORECASE,
+		# )
 		if "donate" in normalized or "donation" in normalized:
-			if amount_pattern.search(text):
-				return True
+			# if amount_pattern.search(text):
+			# 	return True
 			future_phrases = [
 				"will donate",
 				"can donate",
