@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import pickle
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.game import PersuasionGame
+from core.helpers import DialogSession
 from core.gen_models import OpenAIModel
 from core.mcts import OpenLoopMCTS
 from core.helpers import DialogSession
@@ -100,13 +100,27 @@ def _map_system_da(raw_das, system_dialog_acts) -> str:
 
 
 def _load_dialogs(path: Path):
+	if path.suffix == ".jsonl":
+		dialogs = {}
+		with path.open("r", encoding="utf-8") as handle:
+			for line in handle:
+				line = line.strip()
+				if not line:
+					continue
+				record = json.loads(line)
+				entry = {
+					"dialog": record.get("dialog", []),
+					"label": record.get("label", []),
+				}
+				dialogs[record.get("id")] = entry
+		return dialogs
 	with path.open("rb") as f:
 		return pickle.load(f)
 
 
 def generate_preferences(cmd_args):
+	"""Simulate fresh dialogs with the configured LLMs and export preference pairs."""
 	system, user, planner, game, backbone_model = _init_models(cmd_args)
-	all_dialogs = _load_dialogs(PROJECT_ROOT / "data/p4g/300_dialog_turn_based.pkl")
 
 	args = dotdict(
 		{
@@ -121,68 +135,36 @@ def generate_preferences(cmd_args):
 	if output_path:
 		output_path.parent.mkdir(parents=True, exist_ok=True)
 
-	bad_dialogs = {
-		"20180808-024552_152_live",
-		"20180723-100140_767_live",
-		"20180825-080802_964_live",
-	}
-
 	total_pairs = 0
 	total_dialogs = 0
-	pbar = tqdm(total=cmd_args.num_dialogs, desc="evaluating")
-	for did in all_dialogs.keys():
-		if did in bad_dialogs:
-			logger.debug("Skipping dialog id: %s (known bad dialog)", did)
-			continue
-		if total_dialogs == cmd_args.num_dialogs:
-			break
+	default_dialog_id_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+	pbar = tqdm(total=cmd_args.num_dialogs, desc="simulating")
 
-		dialog = all_dialogs[did]
-		context = ""
+	for dialog_idx in range(cmd_args.num_dialogs):
+		dialog_id = f"sim_{default_dialog_id_prefix}_{dialog_idx:04d}"
 		state = game.init_dialog()
 		pending_pairs = []
 		donation_success = False
+		context = ""
 
-		for turn_idx, turn in enumerate(dialog["dialog"]):
-			if len(turn["ee"]) == 0:
-				break
-			if turn_idx == len(dialog["dialog"]) - 1:
-				break
+		if len(state.history) == 0:
+			default_sys_da = (
+				PersuasionGame.S_Greeting
+				if PersuasionGame.S_Greeting in game.system_agent.dialog_acts
+				else game.system_agent.dialog_acts[0]
+			)
+			default_sys_utt = "Hello there! How are you doing today?"
+			default_usr_da = (
+				PersuasionGame.U_Neutral
+				if PersuasionGame.U_Neutral in game.user_agent.dialog_acts
+				else game.user_agent.dialog_acts[0]
+			)
+			default_usr_utt = "I'm doing well. What's this about?"
+			state.add_single(PersuasionGame.SYS, default_sys_da, default_sys_utt)
+			state.add_single(PersuasionGame.USR, default_usr_da, default_usr_utt)
+		context = f"Persuader: {default_sys_utt}\nPersuadee: {default_usr_utt}"
 
-			usr_utt = " ".join(turn["ee"]).strip()
-			raw_usr_da = dialog["label"][turn_idx]["ee"][-1]
-			usr_da = PersuasionGame.map_user_da(raw_usr_da)
-
-			sys_utt = " ".join(turn["er"]).strip()
-			sys_da = _map_system_da(dialog["label"][turn_idx]["er"], system.dialog_acts)
-
-			state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
-			state.add_single(PersuasionGame.USR, usr_da, usr_utt)
-
-			context = f"""
-			{context}
-			Persuader: {sys_utt}
-			Persuadee: {usr_utt}
-			""".replace("\t", "").strip()
-
-			if usr_da == PersuasionGame.U_Donate:
-				logger.info(
-					"[Preference] Dialog %s success at turn %s with response: %s",
-					did,
-					turn_idx,
-					usr_utt,
-				)
-				donation_success = True
-				break
-			elif usr_da == PersuasionGame.U_NoDonation:
-				logger.info(
-					"[Preference] Dialog %s failure at turn %s with response: %s",
-					did,
-					turn_idx,
-					usr_utt,
-				)
-				break
-
+		for turn_idx in range(cmd_args.max_turns):
 			if isinstance(backbone_model, OpenAIModel):
 				backbone_model._cached_generate.cache_clear()
 
@@ -197,48 +179,52 @@ def generate_preferences(cmd_args):
 				continue
 
 			action_idx = int(np.argmax(probabilities))
-			mcts_policy_next_da = system.dialog_acts[action_idx]
+			sys_da = game.system_agent.dialog_acts[action_idx]
+			sys_utt = game.system_agent.get_utterance(state.copy(), action_idx)
+			state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
 
-			# print detail logs
+			user_da, user_utt = game.user_agent.get_utterance_w_da(state)
+			state.add_single(PersuasionGame.USR, user_da, user_utt)
+
+			context = f"{context}\nPersuader: {sys_utt}\nPersuadee: {user_utt}".strip()
+
 			if cmd_args.log_turn_details:
 				mcts_pred_rep = dialog_planner.get_best_realization(state, action_idx)
-				human_resp = " ".join(dialog["dialog"][turn_idx + 1]["er"]).strip()
-				next_sys_das = set(dialog["label"][turn_idx + 1]["er"])
-				next_sys_da = (
-					list(next_sys_das.intersection(system.dialog_acts))[-1]
-					if next_sys_das and next_sys_das.intersection(system.dialog_acts)
-					else "other"
-				)
 				_log_turn_details(
 					cmd_args.log_turn_details,
 					context,
-					human_resp,
-					next_sys_da,
+					user_utt,
+					user_da,
 					mcts_pred_rep,
-					mcts_policy_next_da,
+					sys_da,
 				)
 
-			realizations_vs = getattr(dialog_planner, "realizations_Vs", None)
 			preference_pair = get_preference_pair(
-				probabilities=probabilities,
-				state_rep=hashable_state,
-				dialog_acts=system.dialog_acts,
-				valid_moves=valid_moves,
-				realizations_vs=realizations_vs,
+				probabilities,
+				hashable_state,
+				system.dialog_acts,
+				valid_moves,
+				dialog_planner.realizations_Vs,
 			)
-
 			if preference_pair:
 				pending_pairs.append(
 					{
-						"dialog_id": did,
+						"dialog_id": f"{dialog_id}_turn{turn_idx}",
 						"state": state.copy(),
-						"hashable_state": hashable_state,
 						"preference_pair": preference_pair,
 					}
 				)
-			
-		should_export = donation_success or not cmd_args.only_success
+
+			if user_da == PersuasionGame.U_Donate:
+				logger.info("[Preference] Dialog %s success with response: %s", dialog_id, user_utt)
+				donation_success = True
+				break
+			if user_da == PersuasionGame.U_NoDonation:
+				logger.info("[Preference] Dialog %s failure with response: %s", dialog_id, user_utt)
+				break
+
 		pbar.update(1)
+		should_export = donation_success or not cmd_args.only_success
 		if should_export and pending_pairs:
 			for pair in pending_pairs:
 				export_preference_pair(
@@ -248,11 +234,15 @@ def generate_preferences(cmd_args):
 					system_role=game.SYS,
 					output_path=output_path,
 				)
-				total_pairs += 1
-			total_dialogs += 1
-		print(f"Total dialogs with exported preferences: {total_dialogs}/{cmd_args.num_dialogs}, total pairs: {total_pairs}")
-	logger.info("Preference generation complete: %s pairs written in success dialog %s.",
-             total_pairs, total_dialogs)
+				total_pairs += len(pending_pairs)
+				total_dialogs += 1
+
+	logger.info(
+		"Preference generation complete: %s pairs written across %s dialogs.",
+		total_pairs,
+		total_dialogs,
+	)
+
 
 
 def parse_args():
@@ -302,6 +292,12 @@ def parse_args():
 		type=int,
 		default=3,
 		help="Maximum realizations tracked per state in OpenLoopMCTS.",
+	)
+	parser.add_argument(
+		"--max-turns",
+		type=int,
+		default=6,
+		help="Maximum number of simulated turns per dialog before stopping.",
 	)
 	parser.add_argument(
 		"--Q_0",
