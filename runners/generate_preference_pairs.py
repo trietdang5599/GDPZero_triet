@@ -222,7 +222,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--llm",
 		type=str,
-		choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "claude-3-5-haiku-20241022"],
+		choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "claude-haiku-3.5", "claude-3-5-haiku-20241022"],
 		default="gpt-3.5-turbo",
 		help="Backbone model identifier (API-backed models only).",
 	)
