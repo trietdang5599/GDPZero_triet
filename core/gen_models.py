@@ -323,9 +323,9 @@ class AnthropicChatModel(GenerationModel):
 	MODEL_ALIASES = {
 		"claude-haiku-3.5": "claude-3-5-haiku-20241022",
 	}
-	MODEL_BETA_HEADERS = {
-		"claude-3-5-haiku-20241022": "messages-2024-10-22",
-	}
+	# MODEL_BETA_HEADERS = {
+	# 	"claude-3-5-haiku-20241022": "messages-2024-10-22",
+	# }
 
 	def __init__(self, model_name: str = "claude-3-5-haiku-20241022", gen_sentences: int = -1):
 		if not self.API_TOKEN:
@@ -345,9 +345,9 @@ class AnthropicChatModel(GenerationModel):
 			"anthropic-version": self.API_VERSION,
 			"content-type": "application/json",
 		}
-		beta_header = self.MODEL_BETA_HEADERS.get(self.model_name)
-		if beta_header:
-			self.headers["anthropic-beta"] = beta_header
+		# beta_header = self.MODEL_BETA_HEADERS.get(self.model_name)
+		# if beta_header:
+		# 	self.headers["anthropic-beta"] = beta_header
 
 	def _update_args(self, new_args: Dict[str, object]) -> Dict[str, object]:
 		params = dict(self.inference_args)
