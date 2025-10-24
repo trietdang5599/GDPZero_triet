@@ -78,6 +78,40 @@ def build_single_persona_prompt(
 		remaining_note = f"Personas left to produce after this: {max(remaining_count - 1, 0)}.\n"
 
 	history_block = ""
+	if used_personas:
+		recent_personas = used_personas[-max_history:]
+		diversity_notes: List[str] = []
+		for spec in PERSONA_TYPE_SPECS:
+			field = spec["field"]  # type: ignore[index]
+			label = spec["label"]  # type: ignore[index]
+			options: Iterable[str] = spec["options"]  # type: ignore[index]
+			used_values = {persona.get(field) for persona in used_personas if persona.get(field)}
+			unused_values = [option for option in options if option not in used_values]
+			if unused_values:
+				diversity_notes.append(
+					f"Prioritize unused {label} labels: {_format_options(unused_values)}."
+				)
+			else:
+				recent_values = [persona.get(field) for persona in recent_personas if persona.get(field)]
+				if recent_values:
+					diversity_notes.append(
+						f"All {label} labels have appeared; avoid repeating '{recent_values[-1]}' consecutively when possible."
+					)
+		recent_lines = ["Recent personas (most recent last):"]
+		for persona in recent_personas:
+			trait_summaries = []
+			for spec in PERSONA_TYPE_SPECS:
+				field = spec["field"]  # type: ignore[index]
+				value = persona.get(field, "unknown")
+				trait_summaries.append(f"{field}={value}")
+			recent_lines.append(f"- {persona.get('id', 'unknown')}: {', '.join(trait_summaries)}")
+		history_sections = []
+		if diversity_notes:
+			history_sections.append("\n".join(diversity_notes))
+		if len(recent_lines) > 1:
+			history_sections.append("\n".join(recent_lines))
+		if history_sections:
+			history_block = "\n" + "\n".join(history_sections) + "\n"
 
 	return SINGLE_PERSONA_PROMPT_TEMPLATE.format(
 		persona_catalog=persona_catalog,
