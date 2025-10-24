@@ -223,7 +223,7 @@ def main(cmd_args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--output', type=str, default="", help='output file (autofills if empty)')
-	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "chatgpt", "gpt-3.5-turbo", "gpt2", "qwen2.5-0.5b", "qwen2.5-7b", "llamda-3-8b", "deepseek-r1", "local"], help='Backbone model identifier')
+	parser.add_argument('--llm', type=str, default="code-davinci-002", choices=["code-davinci-002", "chatgpt", "gpt-3.5-turbo", "claude-haiku-3.5", "gpt2", "qwen2.5-0.5b", "qwen2.5-7b", "llamda-3-8b", "deepseek-r1", "local"], help='Backbone model identifier')
 	parser.add_argument('--gen_sentences', type=int, default=-1, help='number of sentences to generate from the llm. Longer ones will be truncated by nltk.')
 	parser.add_argument('--num_mcts_sims', type=int, default=20, help='number of mcts simulations')
 	parser.add_argument('--max_realizations', type=int, default=3, help='number of realizations per mcts state')

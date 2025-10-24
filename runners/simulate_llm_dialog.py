@@ -2,10 +2,10 @@
 
 import argparse
 import logging
-import pickle
 import random
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import sys
 
@@ -20,101 +20,17 @@ from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
-from utils.utils import dotdict, set_determinitic_seed
+from utils.utils import (
+	dotdict,
+	export_preference_pair,
+	get_preference_pair,
+	seed_with_p4g_anchor,
+	set_determinitic_seed,
+)
 from utils.prompt_examples import EXP_DIALOG
 
 
 logger = logging.getLogger(__name__)
-_P4G_DIALOG_CACHE: Optional[List[Tuple[str, dict]]] = None
-
-
-def _load_p4g_dialogs() -> List[Tuple[str, dict]]:
-	global _P4G_DIALOG_CACHE
-	if _P4G_DIALOG_CACHE is not None:
-		return _P4G_DIALOG_CACHE
-	data_path = PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based.pkl"
-	if not data_path.exists():
-		logger.warning("P4G dataset not found at %s – simulations will start empty.", data_path)
-		_P4G_DIALOG_CACHE = []
-		return _P4G_DIALOG_CACHE
-	try:
-		with data_path.open("rb") as handle:
-			raw_data: Dict[str, dict] = pickle.load(handle)
-	except Exception as exc:  # pragma: no cover
-		logger.warning("Failed to load P4G dataset from %s: %s", data_path, exc)
-		_P4G_DIALOG_CACHE = []
-		return _P4G_DIALOG_CACHE
-	items = list(raw_data.items())
-	if not items:
-		logger.warning("P4G dataset at %s is empty.", data_path)
-	_P4G_DIALOG_CACHE = items
-	return _P4G_DIALOG_CACHE
-
-
-def _map_system_da(raw_das, system_dialog_acts: List[str]) -> str:
-	if not raw_das:
-		return system_dialog_acts[0]
-	if isinstance(raw_das, (list, tuple, set)):
-		candidates = [da for da in raw_das if da in system_dialog_acts]
-		if candidates:
-			return candidates[-1]
-		if "other" in system_dialog_acts:
-			return "other"
-		return raw_das[-1] if raw_das and isinstance(raw_das[-1], str) else system_dialog_acts[0]
-	if raw_das in system_dialog_acts:
-		return raw_das
-	return system_dialog_acts[0]
-
-
-def _seed_with_p4g_anchor(state: DialogSession, game: PersuasionGame, conversation: List[dict]) -> int:
-	dialog_items = _load_p4g_dialogs()
-	if not dialog_items:
-		return 0
-	max_attempts = min(20, len(dialog_items))
-	for _ in range(max_attempts):
-		dialog_id, dialog_entry = random.choice(dialog_items)
-		pairs_available = min(len(dialog_entry.get("dialog", [])), len(dialog_entry.get("label", [])))
-		if pairs_available <= 0:
-			continue
-		num_pairs = 2
-		seeded = 0
-		for idx in range(num_pairs):
-			turn = dialog_entry["dialog"][idx]
-			if not turn.get("ee"):
-				break
-			sys_utt_raw = " ".join(turn.get("er", [])).strip()
-			usr_utt_raw = " ".join(turn.get("ee", [])).strip()
-			if not sys_utt_raw and not usr_utt_raw:
-				continue
-			label_entry = dialog_entry["label"][idx]
-			sys_da = _map_system_da(label_entry.get("er"), game.system_agent.dialog_acts)
-			raw_usr_labels = label_entry.get("ee") or []
-			raw_usr_da = raw_usr_labels[-1] if raw_usr_labels else PersuasionGame.U_Neutral
-			usr_da = PersuasionGame.map_user_da(raw_usr_da)
-			sys_utt = sys_utt_raw or "..."
-			usr_utt = usr_utt_raw or "..."
-			state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
-			state.add_single(PersuasionGame.USR, usr_da, usr_utt)
-			conversation.append(
-				{
-					"turn": len(conversation),
-					"action_index": None,
-					"system_dialog_act": sys_da,
-					"system_utterance": sys_utt,
-					"user_selected_act": None,
-					"user_dialog_act": usr_da,
-					"user_utterance": usr_utt,
-					"turn_type": "anchor",
-					"anchor_dialog_id": dialog_id,
-				}
-			)
-			seeded += 1
-			if idx == pairs_available - 1:
-				break
-		if seeded > 0:
-			return seeded
-	logger.warning("Unable to sample anchor turns from P4G dataset; proceeding without anchors.")
-	return 0
 
 
 def _build_agents_and_game(args):
@@ -220,11 +136,14 @@ def simulate_dialog(
 	user_mode: str,
 	classify_user_act: bool,
 	user_planner: PersuadeeHeuristicPlanner | None = None,
-) -> dict:
+	collect_preferences: bool = False,
+	dialog_id: Optional[str] = None,
+) -> tuple[dict, List[dict]]:
 	state = game.init_dialog()
 	conversation: List[dict] = []
+	preference_candidates: List[dict] = []
 
-	seeded_pairs = _seed_with_p4g_anchor(state, game, conversation)
+	seeded_pairs = seed_with_p4g_anchor(state, game, conversation)
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
 	persona_profile: Optional[dict] = None
@@ -252,6 +171,11 @@ def simulate_dialog(
 			dialog_planner.search(state)
 
 		action_prob = dialog_planner.get_action_prob(state)
+		state_rep = dialog_planner._to_string_rep(state)
+		valid_moves = dialog_planner.valid_moves.get(state_rep)
+		if valid_moves is None or np.sum(action_prob) == 0.0:
+			logger.debug("No valid moves available for dialog %s; terminating early.", dialog_id or "N/A")
+			break
 		best_action = int(np.argmax(action_prob))
 		sys_da = game.system_agent.dialog_acts[best_action]
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
@@ -284,15 +208,37 @@ def simulate_dialog(
 			}
 		)
 
+		if collect_preferences:
+			preference_pair = get_preference_pair(
+				action_prob,
+				state_rep,
+				game.system_agent.dialog_acts,
+				valid_moves or [],
+				dialog_planner.realizations_Vs,
+			)
+			if preference_pair:
+				preference_candidates.append(
+					{
+						"turn": len(conversation) - 1,
+						"state": state.copy(),
+						"preference_pair": preference_pair,
+						"dialog_turn_id": f"{dialog_id}_turn{len(conversation) - 1}" if dialog_id else None,
+					}
+				)
+
 		if user_da == PersuasionGame.U_Donate:
 			break
 
 	final_outcome = game.get_dialog_ended(state)
-	return {
+	sim_result = {
+		"dialog_id": dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
 	}
+	if not collect_preferences or final_outcome != 1.0:
+		return sim_result, []
+	return sim_result, preference_candidates
 
 
 def parse_args() -> argparse.Namespace:
@@ -423,6 +369,12 @@ def parse_args() -> argparse.Namespace:
 		default=None,
 		help="Optional path to save simulation transcripts (JSONL).",
 	)
+	parser.add_argument(
+		"--preference-output",
+		type=Path,
+		default=None,
+		help="Optional path to export preference pairs (JSONL). Pairs are saved only for successful dialogs.",
+	)
 	return parser.parse_args()
 
 
@@ -451,10 +403,20 @@ def main() -> None:
 		}
 	)
 
+	preference_output_path = args.preference_output.resolve() if args.preference_output else None
+	preference_enabled = preference_output_path is not None
+	if preference_output_path:
+		preference_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+	total_preference_pairs = 0
+	successful_preference_dialogs = 0
+
 	results = []
 	for sim_id in range(args.num_dialogs):
-		logger.info("=== Simulation %d ===", sim_id + 1)
-		sim_result = simulate_dialog(
+		dialog_id = f"sim_{dialog_prefix}_{sim_id:04d}"
+		logger.info("=== Simulation %d (%s) ===", sim_id + 1, dialog_id)
+		sim_result, pref_candidates = simulate_dialog(
 			game,
 			planner,
 			mcts_cfg,
@@ -463,6 +425,8 @@ def main() -> None:
 			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
 			user_planner=persuadee_planner,
+			collect_preferences=preference_enabled,
+			dialog_id=dialog_id,
 		)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
@@ -489,6 +453,33 @@ def main() -> None:
 				turn["user_utterance"],
 			)
 		logger.info("Simulation outcome: %s", sim_result["outcome"])
+
+		if preference_enabled and pref_candidates:
+			for candidate in pref_candidates:
+				dialog_turn_id = candidate.get("dialog_turn_id") or f"{dialog_id}_turn{candidate['turn']}"
+				export_preference_pair(
+					dialog_id=dialog_turn_id,
+					state=candidate["state"],
+					preference_pair=candidate["preference_pair"],
+					system_role=game.SYS,
+					output_path=preference_output_path,
+				)
+				total_preference_pairs += 1
+			successful_preference_dialogs += 1
+			logger.info(
+				"Exported %d preference pairs for dialog %s (outcome=%.1f).",
+				len(pref_candidates),
+				dialog_id,
+				sim_result["outcome"],
+			)
+
+	if preference_enabled:
+		logger.info(
+			"Preference export summary: %d pairs written across %d successful dialogs to %s.",
+			total_preference_pairs,
+			successful_preference_dialogs,
+			preference_output_path,
+		)
 
 	if args.output:
 		import json

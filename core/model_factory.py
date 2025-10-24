@@ -2,6 +2,7 @@ from core.P4GSystemPlanner import P4GChatSystemPlanner, P4GSystemPlanner
 from core.PersuadeeModel import PersuadeeChatModel, PersuadeeModel
 from core.PersuaderModel import PersuaderChatModel, PersuaderModel
 from core.gen_models import (
+	AnthropicChatModel,
 	AzureOpenAIChatModel,
 	LocalModel,
 	OpenAIChatModel,
@@ -17,6 +18,11 @@ def create_factor_llm(cmd_args):
 		SysPlanner = P4GSystemPlanner
 	elif cmd_args.llm == "gpt-3.5-turbo":
 		backbone_model = OpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
+		SysModel = PersuaderChatModel
+		UsrModel = PersuadeeChatModel
+		SysPlanner = P4GChatSystemPlanner
+	elif cmd_args.llm in ["claude-haiku-3.5", "claude-3-5-haiku-20241022"]:
+		backbone_model = AnthropicChatModel(cmd_args.llm, cmd_args.gen_sentences)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
 		SysPlanner = P4GChatSystemPlanner

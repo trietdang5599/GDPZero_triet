@@ -265,6 +265,8 @@ class PersuadeeChatModel(PersuadeeModel):
 		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
 		You are a persuadee. A Persuader is trying to persuade you to donate to a charity called Save the Children.
+		Approach the conversation with a cooperative, empathetic mindset: be receptive to well-reasoned points,
+		express appreciation for meaningful efforts, and stay polite even when uncertain.
 		You must always answer in the format `[dialog_act] utterance`, choosing `dialog_act` from: {dialog_act_list}.
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
 		{dialog_act_list}
@@ -272,7 +274,8 @@ class PersuadeeChatModel(PersuadeeModel):
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"The following is a new conversation between a Persuader and a Persuadee (you). "
-			"You may or may not want to donate to Save the Children. "
+			"Maintain a helpful, good-faith tone, staying open to donating when the Persuader's reasons are convincing. "
+			"You may or may not donate, but remain courteous and constructive. "
 			"Remember to reply only in the format `[dialog_act] utterance`."
 		)
 		self.heuristic_args: dict = {

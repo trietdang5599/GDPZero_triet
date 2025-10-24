@@ -4,12 +4,22 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 import torch
+import sys
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+	sys.path.insert(0, str(PROJECT_ROOT))
 from core.helpers import DialogSession
+
+if TYPE_CHECKING:
+	from core.game import PersuasionGame
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_P4G_DIALOG_CACHE: Optional[List[Tuple[str, dict]]] = None
 
 def set_determinitic_seed(seed):
 	if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
@@ -156,6 +166,144 @@ def summarize_action_statistics(
 
 	detail_block = "\n".join(strategy_lines)
 	return header, detail_block
+
+
+def load_p4g_dialogs(dataset_path: Optional[Path] = None) -> List[Tuple[str, dict]]:
+	"""Stream and cache the P4G train dialogs from disk."""
+	global _P4G_DIALOG_CACHE
+	if _P4G_DIALOG_CACHE is not None:
+		return _P4G_DIALOG_CACHE
+
+	dataset_path = dataset_path or PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl"
+	if not dataset_path.exists():
+		logger.warning("P4G dataset not found at %s – simulations will start empty.", dataset_path)
+		_P4G_DIALOG_CACHE = []
+		return _P4G_DIALOG_CACHE
+
+	items: List[Tuple[str, dict]] = []
+	try:
+		with dataset_path.open("r", encoding="utf-8") as handle:
+			for line in handle:
+				line = line.strip()
+				if not line:
+					continue
+				try:
+					record = json.loads(line)
+				except json.JSONDecodeError:
+					logger.debug("Skipping malformed P4G dialog line.")
+					continue
+				dialog = record.get("dialog")
+				label = record.get("label")
+				if not isinstance(dialog, list) or not isinstance(label, list):
+					continue
+				dialog_id = record.get("id") or f"p4g_{len(items):05d}"
+				items.append((dialog_id, {"dialog": dialog, "label": label}))
+	except Exception as exc:
+		logger.warning("Failed to load P4G dataset from %s: %s", dataset_path, exc)
+		items = []
+
+	if not items:
+		logger.warning("P4G dataset at %s is empty.", dataset_path)
+
+	_P4G_DIALOG_CACHE = items
+	return _P4G_DIALOG_CACHE
+
+
+def map_system_dialog_act(raw_das, system_dialog_acts: Iterable[str]) -> str:
+	"""Map raw dialog-acts onto the system ontology, defaulting to 'other'."""
+	system_dialog_acts = list(system_dialog_acts)
+	if not system_dialog_acts:
+		return "other"
+
+	if not raw_das:
+		return system_dialog_acts[0]
+
+	if isinstance(raw_das, str):
+		return raw_das if raw_das in system_dialog_acts else system_dialog_acts[0]
+
+	if isinstance(raw_das, (list, tuple, set)):
+		for candidate in reversed(list(raw_das)):
+			if candidate in system_dialog_acts:
+				return candidate
+		if "other" in system_dialog_acts:
+			return "other"
+
+	return system_dialog_acts[0]
+
+
+def seed_with_p4g_anchor(
+	state: DialogSession,
+	game: "PersuasionGame",
+	conversation: List[dict],
+	max_pairs: int = 1,
+	dialogs: Optional[List[Tuple[str, dict]]] = None,
+) -> int:
+	"""Bootstrap a dialog with turns sampled from the P4G train set."""
+	dialog_items = dialogs if dialogs is not None else load_p4g_dialogs()
+	if not dialog_items:
+		return 0
+
+	max_attempts = min(20, len(dialog_items))
+	for _ in range(max_attempts):
+		dialog_id, dialog_entry = random.choice(dialog_items)
+		dialog_turns = dialog_entry.get("dialog") or []
+		label_turns = dialog_entry.get("label") or []
+		if not dialog_turns or not label_turns:
+			continue
+
+		pairs_available = min(len(dialog_turns), len(label_turns), max_pairs)
+		if pairs_available <= 0:
+			continue
+
+		seeded = 0
+		for idx in range(pairs_available):
+			turn = dialog_turns[idx]
+			if not isinstance(turn, dict):
+				continue
+			label_entry = label_turns[idx] if idx < len(label_turns) else {}
+
+			sys_tokens = turn.get("er") if isinstance(turn.get("er"), list) else []
+			usr_tokens = turn.get("ee") if isinstance(turn.get("ee"), list) else []
+			sys_utt_raw = " ".join(sys_tokens).strip()
+			usr_utt_raw = " ".join(usr_tokens).strip()
+			if not sys_utt_raw and not usr_utt_raw:
+				continue
+
+			sys_da = map_system_dialog_act(label_entry.get("er"), game.system_agent.dialog_acts)
+			raw_usr_labels = label_entry.get("ee")
+			if isinstance(raw_usr_labels, list) and raw_usr_labels:
+				raw_usr_da = raw_usr_labels[-1]
+			elif isinstance(raw_usr_labels, str):
+				raw_usr_da = raw_usr_labels
+			else:
+				raw_usr_da = game.U_Neutral
+			usr_da = game.map_user_da(raw_usr_da)
+
+			sys_utt = sys_utt_raw or "..."
+			usr_utt = usr_utt_raw or "..."
+			state.add_single(game.SYS, sys_da, sys_utt)
+			state.add_single(game.USR, usr_da, usr_utt)
+
+			conversation.append(
+				{
+					"turn": len(conversation),
+					"action_index": None,
+					"system_dialog_act": sys_da,
+					"system_utterance": sys_utt,
+					"user_selected_act": None,
+					"user_dialog_act": usr_da,
+					"user_utterance": usr_utt,
+					"turn_type": "anchor",
+					"anchor_dialog_id": dialog_id,
+				}
+			)
+			seeded += 1
+
+		if seeded > 0:
+			return seeded
+
+	logger.warning("Unable to sample anchor turns from P4G dataset; proceeding without anchors.")
+	return 0
 
 
 def export_preference_pair(

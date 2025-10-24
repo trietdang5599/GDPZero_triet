@@ -246,7 +246,7 @@ class OpenLoopMCTS(MCTS):
 				isDonate = "Donation success!"
 			else:
 				isDonate = "Donation failed."
-			logger.info(
+			logger.debug(
 				"MCTS simulation terminal (value=%s) state hash=%s\n%s",
 				terminated_v,
 				hashable_state,

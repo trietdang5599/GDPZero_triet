@@ -1,4 +1,6 @@
+import json
 import requests
+from requests.exceptions import HTTPError
 import logging
 import torch
 import os
@@ -312,6 +314,170 @@ class OpenAIChatModel(OpenAIModel):
 		pool.close()
 		pool.join()
 		return [r.get() for r in results]
+
+
+class AnthropicChatModel(GenerationModel):
+	API_TOKEN = os.environ.get("ANTHROPIC_API_KEY")
+	API_URL = "https://api.anthropic.com/v1/messages"
+	API_VERSION = "2023-06-01"
+	MODEL_ALIASES = {
+		"claude-haiku-3.5": "claude-3-5-haiku-20241022",
+	}
+
+	def __init__(self, model_name: str = "claude-3-5-haiku-20241022", gen_sentences: int = -1):
+		if not self.API_TOKEN:
+			raise ValueError(
+				"ANTHROPIC_API_KEY is not set; please configure it in the environment or .env file."
+			)
+		self.model_name = self.MODEL_ALIASES.get(model_name, model_name)
+		self.model_alias = model_name
+		self.gen_sentences = None if gen_sentences < 0 else gen_sentences
+		self.inference_args: Dict[str, object] = {
+			"max_tokens": 64,
+			"temperature": 0.7, # increase diversity, 0.0 is deterministic
+			"top_p": 0.95, 
+		}
+		self.headers = {
+			"x-api-key": self.API_TOKEN,
+			"anthropic-version": self.API_VERSION,
+			"content-type": "application/json",
+		}
+
+	def _update_args(self, new_args: Dict[str, object]) -> Dict[str, object]:
+		params = dict(self.inference_args)
+		new_args = dict(new_args)
+		if "max_new_tokens" in new_args:
+			params["max_tokens"] = int(new_args.pop("max_new_tokens"))
+		if "temperature" in new_args:
+			params["temperature"] = float(new_args.pop("temperature"))
+		if "top_p" in new_args:
+			params["top_p"] = float(new_args.pop("top_p"))
+		if "top_k" in new_args:
+			params["top_k"] = int(new_args.pop("top_k"))
+		if "repetition_penalty" in new_args:
+			new_args.pop("repetition_penalty", None)
+		if "presence_penalty" in new_args:
+			new_args.pop("presence_penalty", None)
+		if "frequency_penalty" in new_args:
+			new_args.pop("frequency_penalty", None)
+		if "num_return_sequences" in new_args:
+			new_args.pop("num_return_sequences", None)
+		if "n" in new_args:
+			new_args.pop("n", None)
+		if "return_full_text" in new_args:
+			new_args.pop("return_full_text")
+		if "stop" in new_args:
+			stop_sequences = new_args.pop("stop")
+			if isinstance(stop_sequences, str):
+				stop_sequences = [stop_sequences]
+			params["stop_sequences"] = stop_sequences
+		if "do_sample" in new_args:
+			do_sample = bool(new_args.pop("do_sample"))
+			if not do_sample:
+				params["temperature"] = 0.0
+				params.setdefault("top_p", 1.0)
+		# Clamp values to Anthropic-supported ranges.
+		if "temperature" in params:
+			params["temperature"] = max(0.0, min(1.0, float(params["temperature"])))
+		if "top_p" in params:
+			params["top_p"] = max(0.0, min(1.0, float(params["top_p"])))
+		if "top_k" in params:
+			params["top_k"] = max(1, int(params["top_k"]))
+		params.update(new_args)
+		return params
+
+	@staticmethod
+	def _messages_to_payload(messages: List[Dict[str, object]]) -> Tuple[Optional[str], List[Dict[str, object]]]:
+		system_segments: List[str] = []
+		payload_messages: List[Dict[str, object]] = []
+		encountered_user = False
+		for message in messages:
+			role = message.get("role", "")
+			content = message.get("content", "")
+			text = content if isinstance(content, str) else str(content)
+			if role == "system":
+				system_segments.append(text.strip())
+				continue
+			if role == "user":
+				encountered_user = True
+				payload_messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
+				continue
+			if role == "assistant" and not encountered_user:
+				system_segments.append(text.strip())
+				continue
+			if role == "assistant":
+				payload_messages.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
+			else:
+				# Default to user role for any other entries.
+				encountered_user = True
+				payload_messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
+		system_prompt = "\n\n".join(seg for seg in system_segments if seg)
+		return (system_prompt or None, payload_messages)
+
+	@retry(wait=wait_exponential(multiplier=2, min=2, max=8), stop=stop_after_attempt(15))
+	def _post(self, payload: Dict[str, object]) -> Dict[str, object]:
+		response = requests.post(self.API_URL, headers=self.headers, json=payload, timeout=60)
+		try:
+			response.raise_for_status()
+		except HTTPError as exc:
+			error_detail = ""
+			try:
+				error_payload = response.json()
+				error_detail = json.dumps(error_payload, ensure_ascii=False)
+			except Exception:
+				error_detail = response.text
+			logger.error("Anthropic API request failed: %s | payload=%s", error_detail, json.dumps(payload, ensure_ascii=False)[:512])
+			raise
+		return response.json()
+
+	def generate(self, input_text, **_args):
+		messages = [{"role": "user", "content": str(input_text)}]
+		return self.chat_generate(messages, **_args)
+
+	def chat_generate(self, messages: List[Dict[str, object]], **gen_args):
+		if not messages:
+			raise ValueError("AnthropicChatModel requires at least one message to generate a reply.")
+		params = self._update_args(gen_args)
+		system_prompt, payload_messages = self._messages_to_payload(messages)
+		if not payload_messages or payload_messages[0]["role"] != "user":
+			combined_text = []
+			for message in messages:
+				role = message.get("role", "")
+				content = message.get("content", "")
+				text = content if isinstance(content, str) else str(content)
+				if not text:
+					continue
+				combined_text.append(f"{role}: {text}".strip())
+			if not combined_text:
+				raise ValueError("Unable to construct user prompt for Anthropic API; message content is empty.")
+			payload_messages = [
+				{
+					"role": "user",
+					"content": [{"type": "text", "text": "\n".join(combined_text)}],
+				}
+			]
+		payload: Dict[str, object] = {
+			"model": self.model_name,
+			"messages": payload_messages,
+			**params,
+		}
+		if system_prompt:
+			payload["system"] = system_prompt
+		response = self._post(payload)
+		content_blocks = response.get("content", [])
+		text = " ".join(
+			block.get("text", "")
+			for block in content_blocks
+			if isinstance(block, dict) and block.get("type") == "text"
+		).strip()
+		if self.gen_sentences is not None and text:
+			sentences = nltk.sent_tokenize(text)
+			if len(sentences) > self.gen_sentences:
+				text = " ".join(sentences[: self.gen_sentences])
+		return [{"generated_text": text}]
+
+	def chat_generate_batched(self, messages_list: List[List[Dict[str, object]]], **gen_args):
+		return [self.chat_generate(messages, **gen_args) for messages in messages_list]
 
 
 class AzureOpenAIModel(OpenAIModel):
