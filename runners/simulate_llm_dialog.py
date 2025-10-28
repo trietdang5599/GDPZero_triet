@@ -15,15 +15,11 @@ if str(PROJECT_ROOT) not in sys.path:
 import numpy as np
 
 from core.game import PersuasionGame
-from core.mcts import OpenLoopMCTS
 from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
 from utils.utils import (
-	dotdict,
-	export_preference_pair,
-	get_preference_pair,
 	seed_with_p4g_anchor,
 	set_determinitic_seed,
 )
@@ -44,8 +40,7 @@ def _build_agents_and_game(args):
 	usr_das = ontology["user"]["dialog_acts"]
 
 	# Persuader / Persuadee models (NLG)
-	# Enable sampling for Persuader so OpenLoop MCTS can cache
-	# multiple realizations per action and produce preference pairs.
+	# Enable sampling so the Persuader can explore diverse follow-ups when generating utterances.
 	system_name = PersuasionGame.SYS
 	user_name = PersuasionGame.USR
 	exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
@@ -130,8 +125,6 @@ def _build_agents_and_game(args):
 def simulate_dialog(
 	game: PersuasionGame,
 	planner,
-	mcts_cfg: dotdict,
-	num_mcts_sims: int,
 	max_turns: int,
 	user_mode: str,
 	classify_user_act: bool,
@@ -141,7 +134,6 @@ def simulate_dialog(
 ) -> tuple[dict, List[dict]]:
 	state = game.init_dialog()
 	conversation: List[dict] = []
-	preference_candidates: List[dict] = []
 
 	seeded_pairs = seed_with_p4g_anchor(state, game, conversation)
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
@@ -166,17 +158,21 @@ def simulate_dialog(
 		if final_outcome != 0.0:
 			break
 
-		dialog_planner = OpenLoopMCTS(game, planner, mcts_cfg)
-		for _ in range(num_mcts_sims):
-			dialog_planner.search(state)
+		valid_moves = planner.get_valid_moves(state)
+		action_prob, _ = planner.predict(state)
+		action_prob = np.asarray(action_prob, dtype=np.float64)
+		valid_moves = np.asarray(valid_moves, dtype=np.float64)
+		action_prob *= valid_moves
 
-		action_prob = dialog_planner.get_action_prob(state)
-		state_rep = dialog_planner._to_string_rep(state)
-		valid_moves = dialog_planner.valid_moves.get(state_rep)
-		if valid_moves is None or np.sum(action_prob) == 0.0:
-			logger.debug("No valid moves available for dialog %s; terminating early.", dialog_id or "N/A")
-			break
-		best_action = int(np.argmax(action_prob))
+		if np.sum(action_prob) <= 0.0:
+			valid_indices = np.flatnonzero(valid_moves)
+			if valid_indices.size == 0:
+				logger.debug("No valid moves available for dialog %s; terminating early.", dialog_id or "N/A")
+				break
+			best_action = int(np.random.choice(valid_indices))
+		else:
+			action_prob /= action_prob.sum()
+			best_action = int(np.random.choice(len(action_prob), p=action_prob))
 		sys_da = game.system_agent.dialog_acts[best_action]
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
 		state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
@@ -208,24 +204,6 @@ def simulate_dialog(
 			}
 		)
 
-		if collect_preferences:
-			preference_pair = get_preference_pair(
-				action_prob,
-				state_rep,
-				game.system_agent.dialog_acts,
-				valid_moves or [],
-				dialog_planner.realizations_Vs,
-			)
-			if preference_pair:
-				preference_candidates.append(
-					{
-						"turn": len(conversation) - 1,
-						"state": state.copy(),
-						"preference_pair": preference_pair,
-						"dialog_turn_id": f"{dialog_id}_turn{len(conversation) - 1}" if dialog_id else None,
-					}
-				)
-
 		if user_da == PersuasionGame.U_Donate:
 			break
 
@@ -236,9 +214,7 @@ def simulate_dialog(
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
 	}
-	if not collect_preferences or final_outcome != 1.0:
-		return sim_result, []
-	return sim_result, preference_candidates
+	return sim_result, []
 
 
 def parse_args() -> argparse.Namespace:
@@ -297,24 +273,6 @@ def parse_args() -> argparse.Namespace:
 		type=int,
 		default=5,
 		help="Number of simulations to run.",
-	)
-	parser.add_argument(
-		"--num-mcts-sims",
-		type=int,
-		default=20,
-		help="Number of MCTS simulations per turn.",
-	)
-	parser.add_argument(
-		"--max-realizations",
-		type=int,
-		default=5,
-		help="Maximum realizations tracked per state for OpenLoopMCTS.",
-	)
-	parser.add_argument(
-		"--Q_0",
-		type=float,
-		default=0.25,
-		help="Initial Q-value for unexplored actions.",
 	)
 	parser.add_argument(
 		"--max-turns",
@@ -394,33 +352,20 @@ def main() -> None:
 	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
 	logger.info("System dialog acts: %s", sys_das)
 
-	mcts_cfg = dotdict(
-		{
-			"cpuct": 1.0,
-			"num_MCTS_sims": args.num_mcts_sims,
-			"Q_0": args.Q_0,
-			"max_realizations": args.max_realizations,
-		}
-	)
-
 	preference_output_path = args.preference_output.resolve() if args.preference_output else None
 	preference_enabled = preference_output_path is not None
 	if preference_output_path:
 		preference_output_path.parent.mkdir(parents=True, exist_ok=True)
 
 	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
-	total_preference_pairs = 0
-	successful_preference_dialogs = 0
 
 	results = []
 	for sim_id in range(args.num_dialogs):
 		dialog_id = f"sim_{dialog_prefix}_{sim_id:04d}"
 		logger.info("=== Simulation %d (%s) ===", sim_id + 1, dialog_id)
-		sim_result, pref_candidates = simulate_dialog(
+		sim_result, _ = simulate_dialog(
 			game,
 			planner,
-			mcts_cfg,
-			args.num_mcts_sims,
 			args.max_turns,
 			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
@@ -453,33 +398,6 @@ def main() -> None:
 				turn["user_utterance"],
 			)
 		logger.info("Simulation outcome: %s", sim_result["outcome"])
-
-		if preference_enabled and pref_candidates:
-			for candidate in pref_candidates:
-				dialog_turn_id = candidate.get("dialog_turn_id") or f"{dialog_id}_turn{candidate['turn']}"
-				export_preference_pair(
-					dialog_id=dialog_turn_id,
-					state=candidate["state"],
-					preference_pair=candidate["preference_pair"],
-					system_role=game.SYS,
-					output_path=preference_output_path,
-				)
-				total_preference_pairs += 1
-			successful_preference_dialogs += 1
-			logger.info(
-				"Exported %d preference pairs for dialog %s (outcome=%.1f).",
-				len(pref_candidates),
-				dialog_id,
-				sim_result["outcome"],
-			)
-
-	if preference_enabled:
-		logger.info(
-			"Preference export summary: %d pairs written across %d successful dialogs to %s.",
-			total_preference_pairs,
-			successful_preference_dialogs,
-			preference_output_path,
-		)
 
 	if args.output:
 		import json
