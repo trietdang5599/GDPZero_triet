@@ -19,7 +19,8 @@ GPU_IDS="${GPU_IDS:-0,1}"
 ACCELERATE_CFG="${ACCELERATE_CFG:-${REPO_ROOT}/config/accelerate_config.yaml}"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
-DATASET_PATH="${DATASET_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl}"
+DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-train.jsonl}"
+DATASET_VAL_PATH="${DATASET_VAL_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft}"
 SEED="${SEED:-42}"
 
@@ -91,7 +92,8 @@ accelerate launch \
   --multi_gpu \
   "${REPO_ROOT}/train_llm.py" \
   --algorithm sft \
-  --dataset-path "${DATASET_PATH}" \
+  --train-dataset-path "${DATASET_TRAIN_PATH}" \
+  --val-dataset-path "${DATASET_VAL_PATH}" \
   --model-name "${MODEL_NAME}" \
   --output-dir "${OUTPUT_DIR}" \
   --batch-size "${BATCH_SIZE}" \

@@ -5,7 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
-DATASET_PATH="${DATASET_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl}"
+# DATASET_PATH="${DATASET_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl}"
+DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-train.jsonl}"
+DATASET_VAL_PATH="${DATASET_VAL_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-val.jsonl}"
 PREF_PATH="${PREF_PATH:-${REPO_ROOT}/preference_pairs.jsonl}"
 SFT_OUTPUT="${SFT_OUTPUT:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft}"
 DPO_OUTPUT="${DPO_OUTPUT:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo}"
@@ -19,7 +21,7 @@ else
   echo "=== Step 1/3: Build preference pairs ==="
   echo "Preference pairs will be saved to: ${PREF_PATH}"
   OUTPUT_PATH="${PREF_PATH}" \
-  DATASET_PATH="${DATASET_PATH}" \
+  DATASET_PATH="${DATASET_TRAIN_PATH}" \
   bash "${SCRIPT_DIR}/run_build_prefs.sh" "$@"
   [[ -f "${PREF_PATH}" ]] || { echo "[error] Preference pairs not found at ${PREF_PATH}" >&2; exit 1; }
 fi
@@ -28,7 +30,8 @@ echo "=== Step 2/3: Supervised fine-tuning ==="
 echo "SFT checkpoint directory: ${SFT_OUTPUT}"
 OUTPUT_DIR="${SFT_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
-DATASET_PATH="${DATASET_PATH}" \
+DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH}" \
+DATASET_VAL_PATH="${DATASET_VAL_PATH}" \
 bash "${SCRIPT_DIR}/run_sft.sh" "$@"
 [[ -d "${SFT_OUTPUT}" ]] || { echo "[error] SFT output directory missing at ${SFT_OUTPUT}" >&2; exit 1; }
 
