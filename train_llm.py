@@ -513,11 +513,11 @@ def main() -> None:
         raise ValueError("Provide --dataset-path or --train-dataset-path to specify training data.")
     train_records = load_raw_records(dataset_path)
     val_records = load_raw_records(args.val_dataset_path) if args.val_dataset_path else None
-    if val_records is not None and args.validation_ratio > 0:
-        warnings.warn(
-            "Ignoring validation_ratio because --val-dataset-path was provided.",
-            RuntimeWarning,
-        )
+    # if val_records is not None and args.validation_ratio > 0:
+    #     warnings.warn(
+    #         "Ignoring validation_ratio because --val-dataset-path was provided.",
+    #         RuntimeWarning,
+    #     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token or "<|pad|>"})
