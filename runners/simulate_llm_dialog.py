@@ -90,7 +90,7 @@ def _build_agents_and_game(args):
 		backbone_model=persuadee_backbone,
 		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
-		inference_args={"max_new_tokens": 64, "temperature": 0.5},
+		inference_args={"max_new_tokens": 64, "temperature": 0.7},
 	)
 
 	# Planner (policy & value/heuristic)
