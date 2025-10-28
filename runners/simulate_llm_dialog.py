@@ -372,6 +372,8 @@ def main() -> None:
 		if not anchor_dataset.exists():
 			logger.warning("Anchor dataset %s does not exist; seeding will be skipped.", anchor_dataset)
 			anchor_dataset = None
+		else:
+			logger.info("Using anchor dataset at %s", anchor_dataset)
 
 	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
 
