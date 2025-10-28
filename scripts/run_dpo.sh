@@ -54,7 +54,7 @@ accelerate launch \
   --multi_gpu \
   "${REPO_ROOT}/train_llm.py" \
   --algorithm dpo \
-  --dataset-path "${PREF_PATH}" \
+  --train-dataset-path "${PREF_PATH}" \
   --model-name "${MODEL_NAME}" \
   --reference-model-name "${SFT_MODEL_PATH}" \
   --output-dir "${OUTPUT_DIR}" \
