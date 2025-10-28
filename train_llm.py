@@ -437,7 +437,18 @@ def maybe_wrap_lora(model: AutoModelForCausalLM, args: argparse.Namespace) -> Au
 def parse_args() -> argparse.Namespace:
     """Parse CLI options controlling dataset paths, training hyperparameters, and LoRA/quantisation settings."""
     parser = argparse.ArgumentParser(description="Fine-tune a causal LLM on dialogue data (SFT or DPO).")
-    parser.add_argument("--dataset-path", type=Path, default=Path("data/p4g/300_dialog_turn_based.pkl"), help="Path to dialogue dataset (.pkl, .json, .jsonl).")
+    parser.add_argument(
+        "--train-dataset-path",
+        type=Path,
+        default=None,
+        help="Explicit path to the training split. Overrides --dataset-path when set.",
+    )
+    parser.add_argument(
+        "--val-dataset-path",
+        type=Path,
+        default=None,
+        help="Optional path to a validation split. When set, --validation-ratio is ignored.",
+    )
     parser.add_argument("--model-name", type=str, default="gpt2", help="Hugging Face model identifier to fine-tune.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Where to save checkpoints (defaults to outputs/<model>-<algorithm>).")
     parser.add_argument("--algorithm", type=str, choices=["sft", "dpo"], default="sft", help="Training objective.")
@@ -497,7 +508,16 @@ def main() -> None:
         auto_dir = f"outputs/{args.model_name.replace('/', '_')}-{args.algorithm}"
         args.output_dir = Path(auto_dir)
 
-    records = load_raw_records(args.dataset_path)
+    dataset_path = args.train_dataset_path
+    if dataset_path is None:
+        raise ValueError("Provide --dataset-path or --train-dataset-path to specify training data.")
+    train_records = load_raw_records(dataset_path)
+    val_records = load_raw_records(args.val_dataset_path) if args.val_dataset_path else None
+    if val_records is not None and args.validation_ratio > 0:
+        warnings.warn(
+            "Ignoring validation_ratio because --val-dataset-path was provided.",
+            RuntimeWarning,
+        )
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token or "<|pad|>"})
@@ -525,23 +545,32 @@ def main() -> None:
         effective_max_length = args.max_length
 
     if args.algorithm == "sft":
-        examples = build_examples(
-            records,
+        train_examples = build_examples(
+            train_records,
             system_field=args.system_field,
             user_field=args.user_field,
             system_role=args.system_role,
             user_role=args.user_role,
         )
-        if not examples:
+        if not train_examples:
             raise ValueError("No training examples constructed from dataset.")
 
-        random.shuffle(examples)
+        random.shuffle(train_examples)
         if args.max_samples and args.max_samples > 0:
-            examples = examples[: args.max_samples]
+            train_examples = train_examples[: args.max_samples]
 
-        val_size = int(len(examples) * args.validation_ratio)
-        val_examples = examples[:val_size] if val_size > 0 else []
-        train_examples = examples[val_size:]
+        if val_records:
+            val_examples = build_examples(
+                val_records,
+                system_field=args.system_field,
+                user_field=args.user_field,
+                system_role=args.system_role,
+                user_role=args.user_role,
+            )
+        else:
+            val_size = int(len(train_examples) * args.validation_ratio)
+            val_examples = train_examples[:val_size] if val_size > 0 else []
+            train_examples = train_examples[val_size:]
 
         train_dataset = ConversationDataset(train_examples, tokenizer, effective_max_length)
         eval_dataset = ConversationDataset(val_examples, tokenizer, effective_max_length) if val_examples else None
@@ -596,8 +625,8 @@ def main() -> None:
             raise ImportError("trl is required for DPO training. Install it with `pip install trl`. ")
 
         rng = random.Random(args.seed)
-        pref_examples = build_preference_examples(
-            records,
+        train_pref = build_preference_examples(
+            train_records,
             system_field=args.system_field,
             user_field=args.user_field,
             system_role=args.system_role,
@@ -605,15 +634,20 @@ def main() -> None:
             rng=rng,
             num_negatives=args.num_negatives,
         )
-        if not pref_examples:
+        if not train_pref:
             raise ValueError("No preference examples constructed from dataset.")
-        rng.shuffle(pref_examples)
+        rng.shuffle(train_pref)
         if args.max_samples and args.max_samples > 0:
-            pref_examples = pref_examples[: args.max_samples]
+            train_pref = train_pref[: args.max_samples]
 
-        val_size = int(len(pref_examples) * args.validation_ratio)
-        val_pref = pref_examples[:val_size] if val_size > 0 else []
-        train_pref = pref_examples[val_size:]
+        if val_records:
+            warnings.warn(
+                "DPO training ignores --val-dataset-path; using training split only for optimisation.",
+                RuntimeWarning,
+            )
+        val_size = int(len(train_pref) * args.validation_ratio)
+        val_pref = train_pref[:val_size] if val_size > 0 else []
+        train_pref = train_pref[val_size:]
         if not train_pref:
             raise ValueError("Not enough preference examples for training after splitting.")
 
