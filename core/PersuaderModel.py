@@ -7,6 +7,7 @@ from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel, LocalModel
 from core.game import PersuasionGame
 from utils.utils import log_prompt, format_messages_for_log
+from utils.dialog_acts import SYSTEM_DIALOG_ACT_DEFINITIONS
 
 
 logger = logging.getLogger(__name__)
@@ -24,15 +25,7 @@ class PersuaderModel(DialogModel):
 		self.max_hist_num_turns = max_hist_num_turns
 		# prompts and DAs
 		self.da_prompts_mapping = {
-			PersuasionGame.S_Greeting:	 				"The Persuader greets the Persuadee.",
-			# start of persuasion strategies
-			PersuasionGame.S_CredibilityAppeal:	 		"The Persuader establishes credibility of Save the Children by citing its impact.",
-			PersuasionGame.S_EmotionAppeal:	 			"The Persuader uses an emotion appeal to convince the Persuadee.",
-			PersuasionGame.S_LogicalAppeal:	 			"The Persuader use of reasoning and evidence to convince the Persuadee.",
-			PersuasionGame.S_TaskRelatedInquiry:	 	"The Persuader asks about the Persuadee's knowledge or opinion related to Save the Children.",
-			PersuasionGame.S_PropositionOfDonation:	 	"The Persuader asks if the Persuadee would like to make a small donation.",
-			# end of persuasion strategies
-			PersuasionGame.S_Other:	 					"The Persuader responds to the Persuadee without using any persuaive strategy.",
+			da: desc for da, desc in SYSTEM_DIALOG_ACT_DEFINITIONS.items() if da in dialog_acts
 		}
 		# only allow da that has the mapping
 		self.dialog_acts = [da for da in dialog_acts if da in self.da_prompts_mapping]

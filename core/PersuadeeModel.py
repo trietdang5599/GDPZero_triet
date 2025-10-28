@@ -11,6 +11,7 @@ from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel
 from core.game import PersuasionGame
 from utils.utils import log_prompt, format_messages_for_log
+from utils.dialog_acts import USER_DIALOG_ACT_DEFINITIONS
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class PersuadeeModel(DialogModel):
 		self.dialog_acts = dialog_acts
 		self.max_hist_num_turns = max_hist_num_turns
 		self.persona_profiles = self._load_persona_profiles()
+		self.da_definitions = {da: desc for da, desc in USER_DIALOG_ACT_DEFINITIONS.items() if da in dialog_acts}
 		# prompts
 		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
@@ -124,13 +126,20 @@ class PersuadeeModel(DialogModel):
 			keep_user_da=True,
 			keep_sys_da=True,
 			max_turn_to_display=self.max_hist_num_turns,
-		)
+		).strip()
+		response_text = response.strip()
 		acts = ", ".join([f"[{da}]" for da in self.dialog_acts])
-		return (
-			f"Conversation so far:\n{context}\n\n"
-			f"Persuadee last response: {response}\n"
-			f"Which dialog act best describes this response? Choose one from {acts}."
+		definitions = "\n".join([f"[{da}] {desc}" for da, desc in self.da_definitions.items()])
+		segments = []
+		if context:
+			segments.append(f"Conversation so far:\n{context}")
+		segments.append(f"Persuadee last response: {response_text}")
+		segments.append(f"Dialog act definitions:\n{definitions}")
+		segments.append(
+			f"Select the single best dialog act label from {acts}. "
+			"Answer with just the label in brackets (e.g., [donate])."
 		)
+		return "\n\n".join(segments)
 
 	def _classify_dialog_act(self, state: DialogSession, response: str) -> str | None:
 		prompt = self._classification_prompt(state, response)
