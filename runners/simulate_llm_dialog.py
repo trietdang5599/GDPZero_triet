@@ -21,6 +21,7 @@ from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
+from core.PersuaderPlanner import PersuaderLLMPlanner
 from utils.utils import (
 	seed_with_p4g_anchor,
 	set_determinitic_seed,
@@ -93,7 +94,14 @@ def _build_agents_and_game(args):
 		inference_args={"max_new_tokens": 64, "temperature": 0.7},
 	)
 
-	# Planner (policy & value/heuristic)
+	# Planner (policy) for Persuader uses an LLM-only classifier over dialog acts.
+	# planner = PersuaderLLMPlanner(
+	# 	dialog_acts=sys_das,
+	# 	generation_model=persuader_backbone,
+	# 	max_hist_num_turns=2,
+	# 	seed=args.seed,
+	# )
+
 	planner = SysPlanner(
 		dialog_acts=sys_das,
 		max_hist_num_turns=2,

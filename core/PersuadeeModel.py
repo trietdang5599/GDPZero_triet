@@ -36,6 +36,7 @@ class PersuadeeModel(DialogModel):
 		Consider the request objectively: ask for clarification whenever details are unclear, assess whether the reasons align with your values and budget,
 		and decide whether to donate only after you feel the Persuader has provided convincing evidence.
 		You must always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
+		The utterance portion must consist of one or more polite sentences (never empty or meaningless).
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
 		{dialog_act_list}
 		The following is an example conversation between a Persuader and a Persuadee about a charity called Save the Children.
@@ -149,7 +150,7 @@ class PersuadeeModel(DialogModel):
 		action_instruction = ""
 		if action and action in self.dialog_acts:
 			action_instruction = (
-				f"The selected dialog act for this turn is [{action}]. Respond using this dialog act and follow the format `[dialog_act] utterance`.\n"
+				f"The selected dialog act for this turn is [{action}]. Respond using this dialog act, follow the format `[dialog_act] utterance`, and ensure the utterance contains at least one polite sentence.\n"
 			)
 		persona_profile = self._get_persona_profile(state)
 		persona_context = self._build_persona_context(persona_profile)

@@ -46,6 +46,9 @@ class PersuaderModel(DialogModel):
 		The following is a new conversation between another Persuader and Persuadee.
 		"""
 		self.task_prompt = self.task_prompt.replace("\t", "").strip()
+		self.response_instruction = (
+			"Respond politely with at least one complete sentence that advances the persuasion objective."
+		)
 		self.inference_args = {
 			"max_new_tokens": 128,
 			"temperature": 0.0,
@@ -86,6 +89,7 @@ class PersuaderModel(DialogModel):
 		if len(state) == 0:
 			prompt = f"""
 			{self.task_prompt}
+			{self.response_instruction}
 			{da_prompt}
 			Persuader:
 			"""
@@ -93,6 +97,7 @@ class PersuaderModel(DialogModel):
 			prompt = f"""
 			{self.task_prompt}
 			{self.__proccess_exp(state, max_hist_num_turns=self.max_hist_num_turns)}
+			{self.response_instruction}
 			{da_prompt}
 			Persuader:
 			"""
@@ -134,7 +139,10 @@ class PersuaderChatModel(PersuaderModel):
 		You are Persuader who is trying to persuade the Persuadee to donate to a charity called Save the Children.
 		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		""".replace("\t", "").strip()
-		self.new_task_prompt = "The following is a new conversation between Persuader (you) and another Persuadee.\nThe Persuader greets the persuadee."
+		self.new_task_prompt = (
+			"The following is a new conversation between Persuader (you) and another Persuadee.\n"
+			"Always answer politely with one or more complete sentences that advance the persuasion goal. (NEVER answer empty or meaningless)"
+		)
 		self.prompt_examples = self.process_chat_exp()
 		return
 
