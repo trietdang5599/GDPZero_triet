@@ -33,8 +33,7 @@ class PersuadeeModel(DialogModel):
 		# prompts
 		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
-		The following is background information about task. 
-		The Persuader is trying to persuade the Persuadee to donate to Save the Children.
+		You are the Persuadee in this dialog. The Persuader is trying to convince you to donate to Save the Children.
 		Consider the request objectively: ask for clarification whenever details are unclear, assess whether the reasons align with your values and budget,
 		and decide whether to donate only after you feel the Persuader has provided convincing evidence.
 		You must always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
@@ -121,7 +120,7 @@ class PersuadeeModel(DialogModel):
 				return da
 		return None
 
-	def _classification_prompt(self, state: DialogSession, response: str) -> str:
+	def _build_classification_segments(self, state: DialogSession, response: str) -> List[str]:
 		context = state.to_string_rep(
 			keep_user_da=True,
 			keep_sys_da=True,
@@ -139,7 +138,10 @@ class PersuadeeModel(DialogModel):
 			f"Select the single best dialog act label from {acts}. "
 			"Answer with just the label in brackets (e.g., [donate])."
 		)
-		return "\n\n".join(segments)
+		return segments
+
+	def _classification_prompt(self, state: DialogSession, response: str) -> str:
+		return "\n\n".join(self._build_classification_segments(state, response))
 
 	def _classify_dialog_act(self, state: DialogSession, response: str) -> str | None:
 		prompt = self._classification_prompt(state, response)
@@ -406,27 +408,18 @@ class PersuadeeChatModel(PersuadeeModel):
 		return user_resps
 
 	def _classify_dialog_act(self, state: DialogSession, response: str) -> str | None:
-		acts = ", ".join([f"[{da}]" for da in self.dialog_acts])
-		context = state.to_string_rep(
-			keep_user_da=True,
-			keep_sys_da=True,
-			max_turn_to_display=self.max_hist_num_turns,
-		)
+		content = "\n\n".join(self._build_classification_segments(state, response))
 		messages = [
 			{
 				"role": "system",
 				"content": (
 					"You are an annotator who labels persuadee dialog acts. "
-					f"Possible acts are: {acts}. Respond with only the dialog act label."
+					"Use the provided definitions to choose the single best label."
 				),
 			},
 			{
 				"role": "user",
-				"content": (
-					f"Conversation so far:\n{context}\n\n"
-					f"Persuadee response: {response}\n"
-					"Dialog act:"
-				),
+				"content": content,
 			},
 		]
 		try:
