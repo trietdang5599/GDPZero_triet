@@ -12,7 +12,7 @@ from pathlib import Path
 from openai import OpenAI, AzureOpenAI
 
 from abc import ABC, abstractmethod
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Tuple, Dict, Optional
 from core.helpers import DialogSession
 from functools import lru_cache
@@ -690,7 +690,6 @@ class LocalModel(GenerationModel):
 		self.model.config.pad_token_id = self.tokenizer.pad_token_id
 		stop_token_ids = self.tokenizer.encode(stop_symbol, add_special_tokens=False)
 		self.stop_token_id = stop_token_ids[-1] if len(stop_token_ids) > 0 else self.tokenizer.eos_token_id
-		set_seed(42)
 		self.input_max_len = input_max_len
 		self.default_chat_prefixes = {"assistant": "Assistant:", "user": "User:"}
 		self.inference_args = {

@@ -59,20 +59,40 @@ def format_messages_for_log(messages: List[Dict[str, Any]]) -> str:
 		lines.append(f"{role}: {content_str}".strip())
 	return "\n".join(lines)
 
-def set_determinitic_seed(seed):
-	if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
+def set_determinitic_seed(seed: Optional[int], enforce_determinism: bool = False) -> None:
+	"""
+	Seed Python, NumPy, and PyTorch RNGs. When `seed` is None we skip reseeding so runs remain stochastic.
+	If `enforce_determinism` is True we attempt to enable deterministic algorithms (falling back gracefully
+	if the current PyTorch version lacks support).
+	"""
+	if seed is None:
+		if enforce_determinism:
+			logging.getLogger(__name__).warning(
+				"Deterministic mode requested but no seed provided; leaving RNG state unchanged."
+			)
+		return None
+
+	if enforce_determinism and "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
 		os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
 	random.seed(seed)
 	np.random.seed(seed)
 	torch.manual_seed(seed)
-	torch.cuda.manual_seed_all(seed)
+	if torch.cuda.is_available():
+		torch.cuda.manual_seed_all(seed)
+
 	try:
-		torch.use_deterministic_algorithms(True, warn_only=True)
+		if enforce_determinism:
+			torch.use_deterministic_algorithms(True, warn_only=True)
+		else:
+			torch.use_deterministic_algorithms(False)
 	except TypeError:
-		torch.use_deterministic_algorithms(True)
-	torch.backends.cudnn.deterministic = True
-	torch.backends.cudnn.benchmark = False
-	return
+		# Older PyTorch versions do not accept warn_only.
+		torch.use_deterministic_algorithms(enforce_determinism)
+
+	torch.backends.cudnn.deterministic = enforce_determinism
+	torch.backends.cudnn.benchmark = not enforce_determinism
+	return None
 
 
 class dotdict(dict):

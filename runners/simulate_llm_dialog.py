@@ -321,8 +321,13 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--seed",
 		type=int,
-		default=42,
-		help="Random seed for reproducibility.",
+		default=None,
+		help="Random seed for reproducibility. Omit to allow fully stochastic runs.",
+	)
+	parser.add_argument(
+		"--cuda-deterministic",
+		action="store_true",
+		help="Force deterministic CUDA kernels (may reduce sampling diversity).",
 	)
 	parser.add_argument(
 		"--log-level",
@@ -356,8 +361,9 @@ def configure_logging(level: str) -> None:
 def main() -> None:
 	args = parse_args()
 	configure_logging(args.log_level)
-	set_determinitic_seed(args.seed)
-	random.seed(args.seed)
+	set_determinitic_seed(args.seed, enforce_determinism=args.cuda_deterministic)
+	if args.seed is not None:
+		random.seed(args.seed)
 
 	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
 	logger.info("System dialog acts: %s", sys_das)
