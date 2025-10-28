@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -19,7 +19,45 @@ if TYPE_CHECKING:
 	from core.game import PersuasionGame
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_P4G_DIALOG_CACHE: Optional[List[Tuple[str, dict]]] = None
+PROMPT_LOG_PATH = PROJECT_ROOT / "logs" / "prompt_log.txt"
+_P4G_DIALOG_CACHE: Dict[str, List[Tuple[str, dict]]] = {}
+_P4G_ANCHOR_POINTERS: Dict[str, int] = {}
+
+
+def log_prompt(prompt: str, log_path: Optional[Path] = None) -> None:
+	text = (prompt or "").strip()
+	if not text:
+		return
+	output_path = Path(log_path) if log_path else PROMPT_LOG_PATH
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+	if not text.endswith("\n"):
+		text = f"{text}\n"
+	with output_path.open("a", encoding="utf-8") as handle:
+		handle.write("---------\n")
+		handle.write(text)
+		handle.write("---------\n")
+
+
+def format_messages_for_log(messages: List[Dict[str, Any]]) -> str:
+	lines: List[str] = []
+	for message in messages:
+		role = message.get("role", "unknown")
+		content = message.get("content", "")
+		if isinstance(content, list):
+			parts: List[str] = []
+			for chunk in content:
+				if isinstance(chunk, dict):
+					text = chunk.get("text")
+					if text is None:
+						text = str({k: v for k, v in chunk.items() if k != "text"})
+					parts.append(str(text))
+				else:
+					parts.append(str(chunk))
+			content_str = "\n".join(parts)
+		else:
+			content_str = str(content)
+		lines.append(f"{role}: {content_str}".strip())
+	return "\n".join(lines)
 
 def set_determinitic_seed(seed):
 	if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
@@ -168,21 +206,24 @@ def summarize_action_statistics(
 	return header, detail_block
 
 
+
 def load_p4g_dialogs(dataset_path: Optional[Path] = None) -> List[Tuple[str, dict]]:
 	"""Stream and cache the P4G train dialogs from disk."""
-	global _P4G_DIALOG_CACHE
-	if _P4G_DIALOG_CACHE is not None:
-		return _P4G_DIALOG_CACHE
-
-	dataset_path = dataset_path or PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl"
-	if not dataset_path.exists():
-		logger.warning("P4G dataset not found at %s – simulations will start empty.", dataset_path)
-		_P4G_DIALOG_CACHE = []
-		return _P4G_DIALOG_CACHE
+	if dataset_path is None:
+		resolved_path = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl").resolve()
+	else:
+		resolved_path = dataset_path.resolve()
+	key = str(resolved_path)
+	if key in _P4G_DIALOG_CACHE:
+		return _P4G_DIALOG_CACHE[key]
+	if not resolved_path.exists():
+		logger.warning("P4G dataset not found at %s – simulations will start empty.", resolved_path)
+		_P4G_DIALOG_CACHE[key] = []
+		return _P4G_DIALOG_CACHE[key]
 
 	items: List[Tuple[str, dict]] = []
 	try:
-		with dataset_path.open("r", encoding="utf-8") as handle:
+		with resolved_path.open("r", encoding="utf-8") as handle:
 			for line in handle:
 				line = line.strip()
 				if not line:
@@ -199,14 +240,43 @@ def load_p4g_dialogs(dataset_path: Optional[Path] = None) -> List[Tuple[str, dic
 				dialog_id = record.get("id") or f"p4g_{len(items):05d}"
 				items.append((dialog_id, {"dialog": dialog, "label": label}))
 	except Exception as exc:
-		logger.warning("Failed to load P4G dataset from %s: %s", dataset_path, exc)
+		logger.warning("Failed to load P4G dataset from %s: %s", resolved_path, exc)
 		items = []
 
 	if not items:
-		logger.warning("P4G dataset at %s is empty.", dataset_path)
+		logger.warning("P4G dataset at %s is empty.", resolved_path)
 
-	_P4G_DIALOG_CACHE = items
-	return _P4G_DIALOG_CACHE
+	_P4G_DIALOG_CACHE[key] = items
+	return _P4G_DIALOG_CACHE[key]
+
+
+def get_anchor_progress(dataset_path: Optional[Path] = None) -> Optional[dict[str, object]]:
+	"""Return the next anchor index and dialog metadata for the given dataset.
+
+	Args:
+		dataset_path: Optional dataset override. When None the default P4G path is used.
+
+	Returns:
+		Dictionary with keys `dataset_path`, `next_index`, `total_dialogs`, and `next_dialog_id`.
+		Returns None if the dataset cannot be loaded.
+	"""
+	dialog_items = load_p4g_dialogs(dataset_path=dataset_path)
+	if not dialog_items:
+		return None
+	if dataset_path is not None:
+		resolved_dataset = dataset_path.resolve()
+	else:
+		resolved_dataset = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl").resolve()
+	key = str(resolved_dataset)
+	total = len(dialog_items)
+	next_idx = _P4G_DIALOG_CACHE.get(key, 0) % total
+	next_dialog_id = dialog_items[next_idx][0]
+	return {
+		"dataset_path": str(resolved_dataset),
+		"next_index": next_idx,
+		"total_dialogs": total,
+		"next_dialog_id": next_dialog_id,
+	}
 
 
 def map_system_dialog_act(raw_das, system_dialog_acts: Iterable[str]) -> str:
@@ -232,6 +302,7 @@ def map_system_dialog_act(raw_das, system_dialog_acts: Iterable[str]) -> str:
 
 
 def seed_with_p4g_anchor(
+	dataset_path: Optional[Path],
 	state: DialogSession,
 	game: "PersuasionGame",
 	conversation: List[dict],
@@ -239,13 +310,20 @@ def seed_with_p4g_anchor(
 	dialogs: Optional[List[Tuple[str, dict]]] = None,
 ) -> int:
 	"""Bootstrap a dialog with turns sampled from the P4G train set."""
-	dialog_items = dialogs if dialogs is not None else load_p4g_dialogs()
+	dialog_items = dialogs if dialogs is not None else load_p4g_dialogs(dataset_path=dataset_path)
 	if not dialog_items:
 		return 0
+	if dataset_path is None:
+		resolved_path = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl").resolve()
+	else:
+		resolved_path = dataset_path.resolve()
+	key = str(resolved_path)
+	total_dialogs = len(dialog_items)
+	start_idx = _P4G_ANCHOR_POINTERS.get(key, 0) % total_dialogs
 
-	max_attempts = min(20, len(dialog_items))
-	for _ in range(max_attempts):
-		dialog_id, dialog_entry = random.choice(dialog_items)
+	for offset in range(total_dialogs):
+		dialog_idx = (start_idx + offset) % total_dialogs
+		dialog_id, dialog_entry = dialog_items[dialog_idx]
 		dialog_turns = dialog_entry.get("dialog") or []
 		label_turns = dialog_entry.get("label") or []
 		if not dialog_turns or not label_turns:
@@ -256,11 +334,11 @@ def seed_with_p4g_anchor(
 			continue
 
 		seeded = 0
-		for idx in range(pairs_available):
-			turn = dialog_turns[idx]
+		for pair_idx in range(pairs_available):
+			turn = dialog_turns[pair_idx]
 			if not isinstance(turn, dict):
 				continue
-			label_entry = label_turns[idx] if idx < len(label_turns) else {}
+			label_entry = label_turns[pair_idx] if pair_idx < len(label_turns) else {}
 
 			sys_tokens = turn.get("er") if isinstance(turn.get("er"), list) else []
 			usr_tokens = turn.get("ee") if isinstance(turn.get("ee"), list) else []
@@ -300,9 +378,12 @@ def seed_with_p4g_anchor(
 			seeded += 1
 
 		if seeded > 0:
+			setattr(state, "_anchor_dialog_id", dialog_id)
+			_P4G_ANCHOR_POINTERS[key] = (dialog_idx + 1) % total_dialogs
 			return seeded
 
 	logger.warning("Unable to sample anchor turns from P4G dataset; proceeding without anchors.")
+	_P4G_ANCHOR_POINTERS[key] = (start_idx + 1) % total_dialogs
 	return 0
 
 
@@ -338,6 +419,9 @@ def export_preference_pair(
 		"chosen": best_pair[0],
 		"rejected": worst_pair[0],
 	}
+	anchor_dialog_id = getattr(state, "_anchor_dialog_id", None)
+	if anchor_dialog_id:
+		preference_entry["anchor_dialog_id"] = anchor_dialog_id
 
 	output_path = output_path or Path(__file__).resolve().parents[1] / "preference_pair.jsonl"
 	existing_entries = []

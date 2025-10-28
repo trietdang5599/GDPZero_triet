@@ -6,6 +6,7 @@ from typing import List, Tuple
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel, LocalModel
 from core.game import PersuasionGame
+from utils.utils import log_prompt, format_messages_for_log
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class PersuaderModel(DialogModel):
 			Persuader:
 			"""
 		prompt = prompt.replace("\t", "").strip()
+		log_prompt(f"[PERSUADER]\n{prompt}")
 		# produce a response
 		data = self.backbone_model.generate(prompt, **self.inference_args)
 		sys_resp = self.backbone_model._cleaned_resp(data, prompt)[0]  # TODO
@@ -196,7 +198,8 @@ class PersuaderChatModel(PersuaderModel):
 			messages.append({'role': 'user', 'content': f'{PersuasionGame.USR}: Hello.\n{da_prompt}'})
 		else:
 			assert(state[-1][0] == PersuasionGame.USR)
-			messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+		messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+		log_prompt(f"[PERSUADER_CHAT]\n{format_messages_for_log(messages)}")
 		gen_args = {
 			**self.inference_args,
 			"num_return_sequences": batch,  # this will be changed to n inside chat_generate

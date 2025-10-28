@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple, Optional
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel
 from core.game import PersuasionGame
+from utils.utils import log_prompt, format_messages_for_log
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ class PersuadeeModel(DialogModel):
 		self.task_prompt = f"""
 		The following is background information about task. 
 		The Persuader is trying to persuade the Persuadee to donate to Save the Children.
+		Consider the request objectively: ask for clarification whenever details are unclear, assess whether the reasons align with your values and budget,
+		and decide whether to donate only after you feel the Persuader has provided convincing evidence.
 		You must always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
 		{dialog_act_list}
@@ -92,6 +95,16 @@ class PersuadeeModel(DialogModel):
 			setattr(state, "_persona_profile", profile)
 		return profile
 
+	def _build_persona_context(self, persona_profile: Optional[Dict[str, str]]) -> str:
+		if not persona_profile:
+			return ""
+		context_lines = ["Persona background for this conversation:", persona_profile["description"]]
+		if persona_profile.get("big_five"):
+			context_lines.append(f"Big-Five Personality: {persona_profile['big_five']}")
+		if persona_profile.get("decision_making_style"):
+			context_lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
+		return "\n".join(context_lines) + "\n"
+
 	def process_exp(self):
 		prompt_exps = ""
 		for exp in self.conv_examples:
@@ -139,17 +152,7 @@ class PersuadeeModel(DialogModel):
 				f"The selected dialog act for this turn is [{action}]. Respond using this dialog act and follow the format `[dialog_act] utterance`.\n"
 			)
 		persona_profile = self._get_persona_profile(state)
-		persona_context = ""
-		if persona_profile:
-			context_lines = [
-				"Persona background for this conversation:",
-				persona_profile["description"],
-			]
-			if persona_profile.get("big_five"):
-				context_lines.append(f"Big-Five Personality: {persona_profile['big_five']}")
-			if persona_profile.get("decision_making_style"):
-				context_lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
-			persona_context = "\n".join(context_lines) + "\n"
+		persona_context = self._build_persona_context(persona_profile)
 		prompt = f"""
 		{self.task_prompt}
 		{persona_context}
@@ -158,6 +161,7 @@ class PersuadeeModel(DialogModel):
 		Persuadee:
 		"""
 		prompt = prompt.replace("\t", "").strip()
+		log_prompt(f"[PERSUADEE]\n{prompt}")
 		# produce a response
 		data = self.backbone_model.generate(prompt, **self.inference_args)
 		user_resp = self.backbone_model._cleaned_resp(data, prompt)[0]
@@ -177,8 +181,8 @@ class PersuadeeModel(DialogModel):
 			classified = self._classify_dialog_act(state, user_resp)
 			if classified:
 				da = classified
-		if da != PersuasionGame.U_Donate and self._is_affirmative_donation(user_resp):
-			da = PersuasionGame.U_Donate
+		# if da != PersuasionGame.U_Donate and self._is_affirmative_donation(user_resp):
+		# 	da = PersuasionGame.U_Donate
 		return da, user_resp
 
 	def _is_affirmative_donation(self, text: str) -> bool:
@@ -267,6 +271,8 @@ class PersuadeeChatModel(PersuadeeModel):
 		You are a persuadee. A Persuader is trying to persuade you to donate to a charity called Save the Children.
 		Approach the conversation with a cooperative, empathetic mindset: be receptive to well-reasoned points,
 		express appreciation for meaningful efforts, and stay polite even when uncertain.
+		Evaluate the donation request objectively—ask follow-up questions when information is missing, weigh the impact on your personal priorities,
+		and decide to donate only if you are genuinely convinced by the evidence.
 		You must always answer in the format `[dialog_act] utterance`, choosing `dialog_act` from: {dialog_act_list}.
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
 		{dialog_act_list}
@@ -274,8 +280,9 @@ class PersuadeeChatModel(PersuadeeModel):
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"The following is a new conversation between a Persuader and a Persuadee (you). "
-			"Maintain a helpful, good-faith tone, staying open to donating when the Persuader's reasons are convincing. "
-			"You may or may not donate, but remain courteous and constructive. "
+			"Maintain a helpful, good-faith tone while evaluating each point on its merits. "
+			"Ask follow-up questions when necessary, balance the request against your own circumstances, "
+			"and choose `[donate]` only if you feel sufficiently convinced; it is acceptable to decline otherwise. "
 			"Remember to reply only in the format `[dialog_act] utterance`."
 		)
 		self.heuristic_args: dict = {
@@ -334,6 +341,10 @@ class PersuadeeChatModel(PersuadeeModel):
 			*self.prompt_examples,
 			{'role': 'system', 'content': self.new_task_prompt}
 		]
+		persona_profile = self._get_persona_profile(state)
+		persona_context = self._build_persona_context(persona_profile)
+		if persona_context:
+			messages.insert(1, {'role': 'system', 'content': persona_context.strip()})
 		if action and action in self.dialog_acts:
 			messages.append({
 				'role': 'system',
@@ -342,6 +353,7 @@ class PersuadeeChatModel(PersuadeeModel):
 				)
 			})
 		messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+		log_prompt(f"[PERSUADEE_CHAT]\n{format_messages_for_log(messages)}")
 
 		# produce a response
 		data = self.backbone_model.chat_generate(messages, **self.inference_args)
@@ -352,13 +364,17 @@ class PersuadeeChatModel(PersuadeeModel):
 	
 	def get_utterance_from_batched_states(self, states:List[DialogSession], action=None) -> List[str]:
 		assert(all([state[-1][0] == PersuasionGame.SYS for state in states]))
-		all_prompts = []
-		for state in states:
+		all_prompts: List[List[dict]] = []
+		for idx, state in enumerate(states):
 			messages = [
 				{'role': 'system', 'content': self.task_prompt},
 				*self.prompt_examples,
 				{'role': 'system', 'content': self.new_task_prompt}
 			]
+			persona_profile = self._get_persona_profile(state)
+			persona_context = self._build_persona_context(persona_profile)
+			if persona_context:
+				messages.insert(1, {'role': 'system', 'content': persona_context.strip()})
 			if action and action in self.dialog_acts:
 				messages.append({
 					'role': 'system',
@@ -367,6 +383,7 @@ class PersuadeeChatModel(PersuadeeModel):
 					)
 				})
 			messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+			log_prompt(f"[PERSUADEE_CHAT_BATCH_{idx}]\n{format_messages_for_log(messages)}")
 			all_prompts.append(messages)
 		# produce a response
 		datas = self.backbone_model.chat_generate_batched(all_prompts, **self.inference_args)

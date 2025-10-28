@@ -29,6 +29,9 @@ from utils.utils import (
 from utils.prompt_examples import EXP_DIALOG
 
 
+DEFAULT_ANCHOR_DATASET = PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train-65-180.jsonl"
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,23 +104,32 @@ def _build_agents_and_game(args):
 
 
 def simulate_dialog(
-	game: PersuasionGame,
-	planner,
-	mcts_cfg: dotdict,
-	num_mcts_sims: int,
-	max_turns: int,
-	user_mode: str,
-	classify_user_act: bool,
-	user_planner: PersuadeeHeuristicPlanner | None = None,
-	collect_preferences: bool = False,
-	dialog_id: Optional[str] = None,
-	persona_enabled: bool = False,
+    game: PersuasionGame,
+    planner,
+    mcts_cfg: dotdict,
+    num_mcts_sims: int,
+    max_turns: int,
+    user_mode: str,
+    classify_user_act: bool,
+    user_planner: PersuadeeHeuristicPlanner | None = None,
+    collect_preferences: bool = False,
+    dialog_id: Optional[str] = None,
+    persona_enabled: bool = False,
+    anchor_dataset: Optional[Path] = None,
 ) -> tuple[dict, List[dict]]:
 	state = game.init_dialog()
 	conversation: List[dict] = []
 	preference_candidates: List[dict] = []
 
-	seeded_pairs = seed_with_p4g_anchor(state, game, conversation)
+	seeded_pairs = 0
+	if anchor_dataset is not None:
+		seeded_pairs = seed_with_p4g_anchor(
+			dataset_path=anchor_dataset,
+			state=state,
+			game=game,
+			conversation=conversation,
+		)
+	active_dialog_id = getattr(state, "_anchor_dialog_id", None) or dialog_id
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
 	persona_profile: Optional[dict] = None
@@ -191,12 +203,14 @@ def simulate_dialog(
 				dialog_planner.realizations_Vs,
 			)
 			if preference_pair:
+				anchor_dialog_id = getattr(state, "_anchor_dialog_id", None)
 				preference_candidates.append(
 					{
 						"turn": len(conversation) - 1,
 						"state": state.copy(),
 						"preference_pair": preference_pair,
-						"dialog_turn_id": f"{dialog_id}_turn{len(conversation) - 1}" if dialog_id else None,
+						"dialog_turn_id": f"{active_dialog_id}_turn{len(conversation) - 1}" if active_dialog_id else None,
+						"anchor_dialog_id": anchor_dialog_id,
 					}
 				)
 
@@ -205,7 +219,7 @@ def simulate_dialog(
 
 	final_outcome = game.get_dialog_ended(state)
 	sim_result = {
-		"dialog_id": dialog_id,
+		"dialog_id": active_dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
@@ -291,6 +305,15 @@ def parse_args() -> argparse.Namespace:
 		help="Base probability for the heuristic planner to select donate when faced with a donation proposition.",
 	)
 	parser.add_argument(
+		"--anchor-dataset",
+		type=str,
+		default=None,
+		help=(
+			"Optional path to a P4G JSONL dataset for seeding anchor turns. "
+			"Leave unset to use the default dataset, or pass an empty string to disable anchors."
+		),
+	)
+	parser.add_argument(
 		"--seed",
 		type=int,
 		default=42,
@@ -353,14 +376,42 @@ def main() -> None:
 	if preference_output_path:
 		preference_output_path.parent.mkdir(parents=True, exist_ok=True)
 
+	anchor_dataset_path: Optional[Path] = None
+	if args.anchor_dataset is None:
+		default_path = DEFAULT_ANCHOR_DATASET.resolve()
+		if default_path.exists():
+			anchor_dataset_path = default_path
+			logger.info("Using default anchor dataset at %s", anchor_dataset_path)
+		else:
+			logger.warning(
+				"Default anchor dataset not found at %s; proceeding without anchor turns.",
+				default_path,
+			)
+	else:
+		anchor_arg = args.anchor_dataset.strip()
+		if anchor_arg:
+			candidate = Path(anchor_arg)
+			if not candidate.is_absolute():
+				candidate = (PROJECT_ROOT / candidate).resolve()
+				if not candidate.exists() and ("/" not in anchor_arg and "\\" not in anchor_arg):
+					candidate = (PROJECT_ROOT / "data" / "p4g" / anchor_arg).resolve()
+			else:
+				candidate = candidate.resolve()
+			if candidate.exists():
+				anchor_dataset_path = candidate
+				logger.info("Using anchor dataset at %s", anchor_dataset_path)
+			else:
+				logger.warning("Anchor dataset not found at %s; proceeding without anchor turns.", candidate)
+		else:
+			logger.info("Anchor dataset disabled; no seed turns will be used.")
+
 	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
 	total_preference_pairs = 0
 	successful_preference_dialogs = 0
 
 	results = []
 	for sim_id in range(args.num_dialogs):
-		dialog_id = f"sim_{dialog_prefix}_{sim_id:04d}"
-		logger.info("=== Simulation %d (%s) ===", sim_id + 1, dialog_id)
+		default_dialog_id = f"sim_{dialog_prefix}_{sim_id:04d}"
 		sim_result, pref_candidates = simulate_dialog(
 			game,
 			planner,
@@ -371,9 +422,12 @@ def main() -> None:
 			classify_user_act=args.classify_user_act,
 			user_planner=persuadee_planner,
 			collect_preferences=preference_enabled,
-			dialog_id=dialog_id,
+			dialog_id=default_dialog_id,
 			persona_enabled=args.persona,
+			anchor_dataset=anchor_dataset_path,
 		)
+		actual_dialog_id = sim_result.get("dialog_id") or default_dialog_id
+		logger.info("=== Simulation %d (%s) ===", sim_id + 1, actual_dialog_id)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
 		if pp:
@@ -402,7 +456,11 @@ def main() -> None:
 
 		if preference_enabled and sim_result["outcome"] == 1.0 and pref_candidates:
 			for candidate in pref_candidates:
-				dialog_turn_id = candidate.get("dialog_turn_id") or f"{dialog_id}_turn{candidate['turn']}"
+				anchor_base = candidate.get("anchor_dialog_id")
+				if anchor_base:
+					dialog_turn_id = f"{anchor_base}_turn{candidate['turn']}"
+				else:
+					dialog_turn_id = candidate.get("dialog_turn_id") or f"{actual_dialog_id}_turn{candidate['turn']}"
 				export_preference_pair(
 					dialog_id=dialog_turn_id,
 					state=candidate["state"],
@@ -415,7 +473,7 @@ def main() -> None:
 			logger.info(
 				"Exported %d preference pairs for dialog %s (outcome=%.1f).",
 				len(pref_candidates),
-				dialog_id,
+				actual_dialog_id,
 				sim_result["outcome"],
 			)
 

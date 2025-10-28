@@ -3,10 +3,11 @@ class DialogSession():
 		self.SYS = sys_name
 		self.USR = user_name
 		self.history: list = []  # [(role, da, utt), ....]
+		self._persona_profile = None
 		return
 	
 	def from_history(self, history):
-		self.history = history
+		self.history = list(history)
 		return self
 
 	def to_string_rep(self, keep_sys_da=False, keep_user_da=False, max_turn_to_display=-1):
@@ -34,7 +35,9 @@ class DialogSession():
 
 	def copy(self):
 		new_session = DialogSession(self.SYS, self.USR)
-		new_session.from_history(self.history.copy())
+		new_session.from_history(self.history)
+		if hasattr(self, "_persona_profile"):
+			new_session._persona_profile = self._persona_profile
 		return new_session
 
 	def add_single(self, role, da, utt):
