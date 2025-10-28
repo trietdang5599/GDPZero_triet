@@ -762,6 +762,11 @@ class LocalModel(GenerationModel):
 		inputs = self.tokenizer([input_text], return_tensors='pt', truncation=True, max_length=self.input_max_len)
 		inputs = {k: v.to(self.device) for k, v in inputs.items()}
 		prompt_len = inputs['input_ids'].shape[-1]
+		if torch.are_deterministic_algorithms_enabled() and gen_params.get("do_sample", False):
+			logger.warning(
+				"Deterministic algorithms are enabled but sampling is requested; "
+				"PyTorch may emit warnings while proceeding with non-deterministic sampling."
+			)
 		with torch.no_grad():
 			try:
 				outputs = self.model.generate(**inputs, **gen_params)

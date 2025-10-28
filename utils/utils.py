@@ -68,10 +68,7 @@ def set_determinitic_seed(seed: int, enforce_determinism: bool = False) -> None:
 	if torch.cuda.is_available():
 		torch.cuda.manual_seed_all(seed)
 	try:
-		torch.use_deterministic_algorithms(
-			enforce_determinism,
-			warn_only=not enforce_determinism,
-		)
+		torch.use_deterministic_algorithms(enforce_determinism, warn_only=True)
 	except TypeError:
 		# Older torch versions do not support the warn_only kwarg.
 		torch.use_deterministic_algorithms(enforce_determinism)
