@@ -14,6 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(0, str(PROJECT_ROOT))
 import numpy as np
 
+DEFAULT_ANCHOR_DATASET = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-test.jsonl").resolve()
+
 from core.game import PersuasionGame
 from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel
@@ -130,11 +132,20 @@ def simulate_dialog(
 	classify_user_act: bool,
 	user_planner: PersuadeeHeuristicPlanner | None = None,
 	dialog_id: Optional[str] = None,
+	anchor_dataset: Optional[Path] = None,
 ) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
 
-	seeded_pairs = seed_with_p4g_anchor(state, game, conversation)
+	if anchor_dataset is not None:
+		seeded_pairs = seed_with_p4g_anchor(
+			dataset_path=anchor_dataset,
+			state=state,
+			game=game,
+			conversation=conversation,
+		)
+	else:
+		seeded_pairs = 0
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
 	persona_profile: Optional[dict] = None
@@ -326,6 +337,12 @@ def parse_args() -> argparse.Namespace:
 		default=None,
 		help="Optional path to save simulation transcripts (JSONL).",
 	)
+	parser.add_argument(
+		"--dataset-path",
+		type=Path,
+		default=DEFAULT_ANCHOR_DATASET,
+		help="Path to the dialog dataset used for seeding conversations (default: P4G test split).",
+	)
 	return parser.parse_args()
 
 
@@ -345,6 +362,17 @@ def main() -> None:
 	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
 	logger.info("System dialog acts: %s", sys_das)
 
+	anchor_dataset = None
+	if args.dataset_path:
+		anchor_dataset = Path(args.dataset_path).expanduser()
+		if not anchor_dataset.is_absolute():
+			anchor_dataset = (PROJECT_ROOT / anchor_dataset).resolve()
+		else:
+			anchor_dataset = anchor_dataset.resolve()
+		if not anchor_dataset.exists():
+			logger.warning("Anchor dataset %s does not exist; seeding will be skipped.", anchor_dataset)
+			anchor_dataset = None
+
 	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 	results = []
@@ -359,6 +387,7 @@ def main() -> None:
 			classify_user_act=args.classify_user_act,
 			user_planner=persuadee_planner,
 			dialog_id=dialog_id,
+			anchor_dataset=anchor_dataset,
 		)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
