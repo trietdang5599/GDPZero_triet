@@ -129,9 +129,8 @@ def simulate_dialog(
 	user_mode: str,
 	classify_user_act: bool,
 	user_planner: PersuadeeHeuristicPlanner | None = None,
-	collect_preferences: bool = False,
 	dialog_id: Optional[str] = None,
-) -> tuple[dict, List[dict]]:
+) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
 
@@ -214,7 +213,7 @@ def simulate_dialog(
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
 	}
-	return sim_result, []
+	return sim_result
 
 
 def parse_args() -> argparse.Namespace:
@@ -327,12 +326,6 @@ def parse_args() -> argparse.Namespace:
 		default=None,
 		help="Optional path to save simulation transcripts (JSONL).",
 	)
-	parser.add_argument(
-		"--preference-output",
-		type=Path,
-		default=None,
-		help="Optional path to export preference pairs (JSONL). Pairs are saved only for successful dialogs.",
-	)
 	return parser.parse_args()
 
 
@@ -352,25 +345,19 @@ def main() -> None:
 	_, planner, persuadee_planner, game, sys_das = _build_agents_and_game(args)
 	logger.info("System dialog acts: %s", sys_das)
 
-	preference_output_path = args.preference_output.resolve() if args.preference_output else None
-	preference_enabled = preference_output_path is not None
-	if preference_output_path:
-		preference_output_path.parent.mkdir(parents=True, exist_ok=True)
-
 	dialog_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 	results = []
 	for sim_id in range(args.num_dialogs):
 		dialog_id = f"sim_{dialog_prefix}_{sim_id:04d}"
 		logger.info("=== Simulation %d (%s) ===", sim_id + 1, dialog_id)
-		sim_result, _ = simulate_dialog(
+		sim_result = simulate_dialog(
 			game,
 			planner,
 			args.max_turns,
 			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
 			user_planner=persuadee_planner,
-			collect_preferences=preference_enabled,
 			dialog_id=dialog_id,
 		)
 		results.append(sim_result)
