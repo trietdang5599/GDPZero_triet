@@ -98,6 +98,7 @@ accelerate launch \
   --output-dir "${OUTPUT_DIR}" \
   --batch-size "${BATCH_SIZE}" \
   --gradient-accumulation "${GRAD_ACCUM}" \
+  --gradient-checkpointing \
   --num-train-epochs "${NUM_EPOCHS}" \
   --learning-rate "${LEARNING_RATE}" \
   --max-length "${MAX_LENGTH}" \

@@ -527,6 +527,8 @@ def main() -> None:
     configure_gc_wrapper(model, use_reentrant=args.checkpoint_reentrant)
     if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         try:
+            model.gradient_checkpointing_enable(use_reentrant=args.checkpoint_reentrant)
+        except TypeError:
             model.gradient_checkpointing_enable()
         except Exception:
             pass
