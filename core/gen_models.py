@@ -713,7 +713,7 @@ class LocalModel(GenerationModel):
 		legacy_num_ret = gen_params.pop("n", None)
 		if legacy_num_ret is not None and gen_params.get("num_return_sequences") is None:
 			gen_params["num_return_sequences"] = legacy_num_ret
-		for legacy in ("return_full_text", "echo", "stop"):
+		for legacy in ("return_fulLocalModell_text", "echo", "stop"):
 			gen_params.pop(legacy, None)
 		if gen_params.get("num_return_sequences", 1) < 1:
 			gen_params["num_return_sequences"] = 1
@@ -723,10 +723,6 @@ class LocalModel(GenerationModel):
 			gen_params["pad_token_id"] = self.tokenizer.pad_token_id
 		if gen_params.get("eos_token_id") is None:
 			gen_params["eos_token_id"] = self.stop_token_id
-		if not gen_params.get("do_sample", False):
-			gen_params.pop("temperature", None)
-			gen_params.pop("top_p", None)
-			gen_params.pop("top_k", None)
 		return gen_params
 
 	def _messages_to_prompt(self, messages: List[Dict]) -> str:
@@ -762,11 +758,7 @@ class LocalModel(GenerationModel):
 		inputs = self.tokenizer([input_text], return_tensors='pt', truncation=True, max_length=self.input_max_len)
 		inputs = {k: v.to(self.device) for k, v in inputs.items()}
 		prompt_len = inputs['input_ids'].shape[-1]
-		if torch.are_deterministic_algorithms_enabled() and gen_params.get("do_sample", False):
-			logger.warning(
-				"Deterministic algorithms are enabled but sampling is requested; "
-				"PyTorch may emit warnings while proceeding with non-deterministic sampling."
-			)
+
 		with torch.no_grad():
 			try:
 				outputs = self.model.generate(**inputs, **gen_params)

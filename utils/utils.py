@@ -59,22 +59,20 @@ def format_messages_for_log(messages: List[Dict[str, Any]]) -> str:
 		lines.append(f"{role}: {content_str}".strip())
 	return "\n".join(lines)
 
-def set_determinitic_seed(seed: int, enforce_determinism: bool = False) -> None:
-	if enforce_determinism and "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
+def set_determinitic_seed(seed):
+	if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
 		os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 	random.seed(seed)
 	np.random.seed(seed)
 	torch.manual_seed(seed)
-	if torch.cuda.is_available():
-		torch.cuda.manual_seed_all(seed)
+	torch.cuda.manual_seed_all(seed)
 	try:
-		torch.use_deterministic_algorithms(enforce_determinism, warn_only=True)
+		torch.use_deterministic_algorithms(True, warn_only=True)
 	except TypeError:
-		# Older torch versions do not support the warn_only kwarg.
-		torch.use_deterministic_algorithms(enforce_determinism)
-	torch.backends.cudnn.deterministic = enforce_determinism
-	torch.backends.cudnn.benchmark = not enforce_determinism
-	return None
+		torch.use_deterministic_algorithms(True)
+	torch.backends.cudnn.deterministic = True
+	torch.backends.cudnn.benchmark = False
+	return
 
 
 class dotdict(dict):
