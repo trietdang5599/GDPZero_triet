@@ -29,7 +29,7 @@ LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-0}"
 
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
-
+echo "DPO checkpoint directory: ${SFT_MODEL_PATH}"
 LORA_ARGS=()
 if [[ "${USE_LORA}" != "0" ]]; then
   LORA_ARGS=(

@@ -124,6 +124,7 @@ def build_quantization_config(args) -> Optional["BitsAndBytesConfig"]:
 
 def load_causal_model(model_name: str, args, tokenizer=None):
     """Load the causal LM with optional quantization, precision, and device mapping."""
+    print("==== Model_name or local_path: ", model_name, " ========")
     quant_config = build_quantization_config(args)
     torch_dtype = resolve_torch_dtype(args)
     load_kwargs: Dict[str, Any] = {}
