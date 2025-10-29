@@ -18,7 +18,7 @@ DEFAULT_ANCHOR_DATASET = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based
 
 from core.game import PersuasionGame
 from core.model_factory import create_factor_llm
-from core.gen_models import LocalModel
+from core.gen_models import LocalModel, OpenAIChatModel, AzureOpenAIChatModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
 from core.PersuaderPlanner import PersuaderLLMPlanner
@@ -49,7 +49,16 @@ def _build_agents_and_game(args):
 	exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 
 	persuadee_backbone = backbone_model
-	if getattr(args, "persuadee_model_name", "") and args.persuadee_model_name != args.llm:
+	if getattr(args, "persuadee_api_llm", ""):
+		if getattr(args, "persuadee_model_name", ""):
+			logger.warning("Ignoring --persuadee-model-name because --persuadee-api-llm is provided for Persuadee.")
+		if getattr(args, "persuadee_api_provider", "openai") == "azure":
+			logger.info("Using Azure OpenAI chat model for Persuadee: %s", args.persuadee_api_llm)
+			persuadee_backbone = AzureOpenAIChatModel(args.persuadee_api_llm, args.gen_sentences)
+		else:
+			logger.info("Using OpenAI chat model for Persuadee: %s", args.persuadee_api_llm)
+			persuadee_backbone = OpenAIChatModel(args.persuadee_api_llm, args.gen_sentences)
+	elif getattr(args, "persuadee_model_name", "") and args.persuadee_model_name != args.llm:
 		logger.info("Loading Persuadee model from Hugging Face: %s", args.persuadee_model_name)
 		persuadee_backbone = LocalModel(args.persuadee_model_name, trust_remote_code=True)
 
@@ -267,6 +276,19 @@ def parse_args() -> argparse.Namespace:
 		type=str,
 		default="",
 		help="Optional Hugging Face model identifier for the Persuadee agent (when different from --llm).",
+	)
+	parser.add_argument(
+		"--persuadee-api-llm",
+		type=str,
+		default="",
+		help="Optional API-based chat model identifier for the Persuadee (e.g., gpt-4o-mini).",
+	)
+	parser.add_argument(
+		"--persuadee-api-provider",
+		type=str,
+		choices=["openai", "azure"],
+		default="openai",
+		help="API provider to use when --persuadee-api-llm is set.",
 	)
 	parser.add_argument(
 		"--persuader-model-path",
