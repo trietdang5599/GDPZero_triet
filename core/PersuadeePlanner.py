@@ -10,41 +10,28 @@ logger = logging.getLogger(__name__)
 
 
 class PersuadeeHeuristicPlanner:
-	def __init__(self, dialog_acts: List[str], donate_prob: float = 0.4, seed: int | None = None):
+	def __init__(
+		self,
+			dialog_acts: List[str],
+			generation_model: GenerationModel,
+			max_hist_num_turns: int = 2,
+			donate_prob: float | None = None,
+			seed: int | None = None,
+	):
+		if generation_model is None:
+			raise ValueError("generation_model is required for context-aware persuadee planning.")
 		self.dialog_acts = dialog_acts
-		self.donate_prob = max(0.0, min(1.0, donate_prob))
-		self.rng = random.Random(seed)
+		if donate_prob is not None:
+			logger.debug("donate_prob is deprecated and ignored. Persuadee now uses LLM-based planning.")
+		self._llm_planner = PersuadeeLLMPlanner(
+			dialog_acts=dialog_acts,
+			generation_model=generation_model,
+			max_hist_num_turns=max_hist_num_turns,
+			seed=seed,
+		)
 
-	def _weighted_choice(self, candidates: List[str]) -> str:
-		available = [da for da in candidates if da in self.dialog_acts]
-		if not available:
-			return PersuasionGame.U_Neutral if PersuasionGame.U_Neutral in self.dialog_acts else self.dialog_acts[0]
-		return self.rng.choice(available)
-
-	def select_action(self, state) -> str:
-		if len(state) == 0:
-			return self._weighted_choice([PersuasionGame.U_Neutral])
-		last_role, last_da, _ = state[-1]
-		if last_role != PersuasionGame.SYS:
-			return self._weighted_choice([PersuasionGame.U_Neutral])
-
-		mapping = {
-			PersuasionGame.S_Greeting: [PersuasionGame.U_PositiveReaction, PersuasionGame.U_Neutral],
-			PersuasionGame.S_CredibilityAppeal: [PersuasionGame.U_PositiveReaction, PersuasionGame.U_Neutral, PersuasionGame.U_NegativeReaction],
-			PersuasionGame.S_EmotionAppeal: [PersuasionGame.U_PositiveReaction, PersuasionGame.U_Neutral, PersuasionGame.U_NegativeReaction],
-			PersuasionGame.S_TaskRelatedInquiry: [PersuasionGame.U_PositiveReaction, PersuasionGame.U_Neutral],
-			PersuasionGame.S_LogicalAppeal: [PersuasionGame.U_PositiveReaction, PersuasionGame.U_Neutral],
-			PersuasionGame.S_Other: [PersuasionGame.U_Neutral, PersuasionGame.U_PositiveReaction],
-		}
-		if last_da == PersuasionGame.S_PropositionOfDonation:
-			if self.rng.random() < self.donate_prob and PersuasionGame.U_Donate in self.dialog_acts:
-				return PersuasionGame.U_Donate
-			return self._weighted_choice([
-				PersuasionGame.U_PositiveReaction,
-				PersuasionGame.U_NoDonation,
-				PersuasionGame.U_Neutral,
-			])
-		return self._weighted_choice(mapping.get(last_da, [PersuasionGame.U_Neutral]))
+	def select_action(self, state: DialogSession) -> str:
+		return self._llm_planner.select_action(state)
 
 
 class PersuadeeLLMPlanner:

@@ -138,8 +138,10 @@ def _build_agents_and_game(args):
 			)
 		else:
 			persuadee_planner = PersuadeeHeuristicPlanner(
-				persuadee.dialog_acts,
-				donate_prob=args.planner_donate_prob,
+				dialog_acts=persuadee.dialog_acts,
+				generation_model=persuadee_backbone,
+				max_hist_num_turns=2,
+				donate_prob=getattr(args, "planner_donate_prob", None),
 				seed=args.seed,
 			)
 
@@ -340,8 +342,8 @@ def parse_args() -> argparse.Namespace:
 		choices=["heuristic", "llm"],
 		default="heuristic",
 		help=(
-			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (mapping + randomness) or 'llm' "
-			"(content-aware action selection from last 1�2 Persuader utterances)."
+			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (alias for the context-aware LLM "
+			"planner with default settings) or 'llm' (explicit context-aware LLM planner)."
 		),
 	)
 	parser.add_argument(
@@ -357,8 +359,8 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--planner-donate-prob",
 		type=float,
-		default=0.4,
-		help="Base probability for the heuristic planner to select donate when faced with a donation proposition.",
+		default=None,
+		help="(Deprecated) Ignored; heuristic persuadee now samples donation responses freely.",
 	)
 	parser.add_argument(
 		"--seed",
