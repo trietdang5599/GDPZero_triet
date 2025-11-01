@@ -27,6 +27,12 @@ from utils.utils import (
 	set_determinitic_seed,
 )
 from utils.prompt_examples import EXP_DIALOG
+import nltk
+nltk.download('punkt', quiet=True)
+try:
+    nltk.download('punkt_tab', quiet=True)
+except Exception:
+    pass
 
 
 logger = logging.getLogger(__name__)
