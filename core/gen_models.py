@@ -268,7 +268,7 @@ class OpenAIChatModel(OpenAIModel):
 		return super()._update_args(new_args)
 
 	def generate(self, input_text, **_args):
-		logging.info("It is recommended to use chat_generate instead of generate for OpenAIChatModel")
+		# logging.info("It is recommended to use chat_generate instead of generate for OpenAIChatModel")
 		messages = [{
 			"role": "user",
 			"content": input_text
