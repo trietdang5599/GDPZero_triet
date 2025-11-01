@@ -96,7 +96,7 @@ def _build_agents_and_game(args):
 		conv_examples=[exp_dialog],
 		inference_args={
 			"max_new_tokens": 128,
-			"temperature": 0.7,
+			"temperature": 1.1,
 			"do_sample": True,
 			"return_full_text": False,
 		},
@@ -104,9 +104,9 @@ def _build_agents_and_game(args):
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=persuadee_backbone,
-		max_hist_num_turns=2,
+		max_hist_num_turns=1,
 		conv_examples=[exp_dialog],
-		inference_args={"max_new_tokens": 128, "temperature": 1.1, "repetition_penalty": 1.0, "return_full_text": False},
+		inference_args={"max_new_tokens": 128, "temperature": 0.9, "repetition_penalty": 1.0, "return_full_text": False},
 	)
 
 	# Planner (policy) for Persuader uses an LLM-only classifier over dialog acts.

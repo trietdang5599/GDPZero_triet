@@ -143,16 +143,17 @@ class PersuaderChatModel(PersuaderModel):
 		}
 		self.task_prompt = """
 		Save the Children is head-quartered in London, and they work to help fight poverty around the world. Children need help in developing countries and war zones. Small donations like $1 or $2 go a long way to help.
-		You are Persuader who is trying to persuade the Persuadee to donate to a charity called Save the Children.
+		You are Persuader who is trying to persuade the Persuadee to donate to a charity called Save the Children.\n
 		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"The following is a new conversation between Persuader (you) and another Persuadee.\n"
-			"Always answer politely with one or more complete sentences that advance the persuasion goal. "
-			"Please DO NOT sentences are:"
-			" - empty "
-			" - meaningless" \
-			" - duplication sentence in history dialog)"
+			"Always respond with one or more complete sentences that clearly advance the persuasion goal. "
+			"Your responses must sound natural, logical, and contextually relevant. "
+			"Do NOT produce sentences that are:\n"
+			"- Empty or incomplete\n" 
+			"- Meaningless or generic\n"
+			"- Repetitions or near-duplicates of previous utterances in the conversation\n"
 		)
 		self.prompt_examples = self.process_chat_exp()
 		return
