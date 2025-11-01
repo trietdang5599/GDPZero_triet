@@ -58,38 +58,6 @@ class PersuaderModel(DialogModel):
 			prompt_exps += self.__proccess_exp(exp) + "\n"
 		return prompt_exps.strip()
 
-	def _normalize_response(self, text: str) -> str:
-		return " ".join((text or "").strip().split()).lower()
-
-	def _response_was_used(self, state: DialogSession, response: str) -> bool:
-		if not response:
-			return False
-		target = self._normalize_response(response)
-		if not target:
-			return False
-		for role, _da, utt in reversed(state):
-			if role != PersuasionGame.SYS:
-				continue
-			if self._normalize_response(utt) == target:
-				return True
-		return False
-
-	def _generate_responses(self, prompt: str, sampling: bool, num_return_sequences: int) -> List[str]:
-		gen_args = {**self.inference_args}
-		gen_args["num_return_sequences"] = max(1, int(num_return_sequences))
-		if sampling:
-			gen_args["do_sample"] = True
-			gen_args.setdefault("temperature", 0.9)
-			gen_args.setdefault("top_p", 0.9)
-		else:
-			gen_args["do_sample"] = False
-		try:
-			data = self.backbone_model.generate(prompt, **gen_args)
-			return self.backbone_model._cleaned_resp(data, prompt)
-		except Exception as exc:  # pragma: no cover - robustness
-			logger.warning("Persuader generation failed (sampling=%s): %s", sampling, exc)
-			return []
-
 	def __proccess_exp(self, exp:DialogSession, max_hist_num_turns: int = -1):
 		prompt_exp = ""
 		num_turns_to_truncate = 0
@@ -111,23 +79,6 @@ class PersuaderModel(DialogModel):
 		# planner gives an action, state is history, you need to produce a response accrd to the action
 		da = self.dialog_acts[action]
 		da_prompt = self.da_prompts_mapping[da]
-		prompt = self._build_prompt(state, da_prompt)
-		log_prompt(f"[PERSUADER]\n{prompt}")
-		# First attempt: deterministic decoding
-		candidates = self._generate_responses(prompt, sampling=False, num_return_sequences=1)
-		primary_resp = candidates[0] if candidates else ""
-		if primary_resp and not self._response_was_used(state, primary_resp):
-			return primary_resp
-
-		# Fallback: stochastic decoding to avoid repetition
-		logger.debug("Detected repeated or empty response; resampling Persuader utterance.")
-		for candidate in self._generate_responses(prompt, sampling=True, num_return_sequences=3):
-			if candidate and not self._response_was_used(state, candidate):
-				return candidate
-		# If all else fails, return original (even if repeated) to avoid empty turn.
-		return primary_resp
-
-	def _build_prompt(self, state: DialogSession, da_prompt: str) -> str:
 		if len(state) == 0:
 			prompt = f"""
 			{self.task_prompt}
@@ -143,7 +94,12 @@ class PersuaderModel(DialogModel):
 			{da_prompt}
 			Persuader:
 			"""
-		return prompt.replace("\t", "").strip()
+		prompt = prompt.replace("\t", "").strip()
+		log_prompt(f"[PERSUADER]\n{prompt}")
+		# produce a response
+		data = self.backbone_model.generate(prompt, **self.inference_args)
+		sys_resp = self.backbone_model._cleaned_resp(data, prompt)[0]  # TODO
+		return sys_resp
 
 	def get_utterance_batched(
 		self,
@@ -192,7 +148,11 @@ class PersuaderChatModel(PersuaderModel):
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"The following is a new conversation between Persuader (you) and another Persuadee.\n"
-			"Always answer politely with one or more complete sentences that advance the persuasion goal. (NEVER answer empty or meaningless)"
+			"Always answer politely with one or more complete sentences that advance the persuasion goal. "
+			"Please DO NOT sentences are:"
+			" - empty "
+			" - meaningless" \
+			" - duplication sentence in history dialog)"
 		)
 		self.prompt_examples = self.process_chat_exp()
 		return
@@ -239,13 +199,16 @@ class PersuaderChatModel(PersuaderModel):
 					prompt_messages.append({
 						"role": "user",
 						"content": f"{role}: {utt}".strip()
-				})
+					})
 		return prompt_messages
 	
-	def _build_chat_messages(self, state: DialogSession, action: int) -> List[dict]:
+	def get_utterance(self, state:DialogSession, action:int) -> str:
+		return self.get_utterance_batched(state, action, batch=1)[0]
+	
+	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3) -> List[str]:
 		da = self.dialog_acts[action]
 		da_prompt = self.da_prompts_mapping[da]
-		messages: List[dict] = [
+		messages = [
 			{'role': 'system', 'content': self.task_prompt},
 			*self.prompt_examples,
 			{'role': 'system', 'content': self.new_task_prompt}
@@ -253,52 +216,18 @@ class PersuaderChatModel(PersuaderModel):
 		if len(state) == 0:
 			messages.append({'role': 'user', 'content': f'{PersuasionGame.USR}: Hello.\n{da_prompt}'})
 		else:
-			assert state[-1][0] == PersuasionGame.USR
-			messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
-			messages.append({'role': 'system', 'content': da_prompt})
-		return messages
-
-	def _chat_generate(self, messages: List[dict], sampling: bool, num_sequences: int) -> List[str]:
-		gen_args = {**self.inference_args}
-		gen_args["num_return_sequences"] = max(1, int(num_sequences))
-		if sampling:
-			gen_args["do_sample"] = True
-			gen_args.setdefault("temperature", 0.9)
-			gen_args.setdefault("top_p", 0.9)
-		else:
-			gen_args["do_sample"] = False
-		try:
-			data = self.backbone_model.chat_generate(messages, **gen_args)
-			return self.backbone_model._cleaned_chat_resp(
-				data,
-				assistant_role=f"{PersuasionGame.SYS}:",
-				user_role=f"{PersuasionGame.USR}:",
-			)
-		except Exception as exc:  # pragma: no cover
-			logger.warning("Persuader chat generation failed (sampling=%s): %s", sampling, exc)
-			return []
-
-	def get_utterance(self, state:DialogSession, action:int) -> str:
-		messages = self._build_chat_messages(state, action)
+			assert(state[-1][0] == PersuasionGame.USR)
+		messages += self.__proccess_chat_exp(state, max_hist_num_turns=self.max_hist_num_turns)
 		log_prompt(f"[PERSUADER_CHAT]\n{format_messages_for_log(messages)}")
-
-		candidates = self._chat_generate(messages, sampling=False, num_sequences=1)
-		primary_resp = candidates[0] if candidates else ""
-		if primary_resp and not self._response_was_used(state, primary_resp):
-			return primary_resp
-
-		logger.debug("Resampling Persuader chat response to avoid repetition.")
-		for candidate in self._chat_generate(messages, sampling=True, num_sequences=3):
-			if candidate and not self._response_was_used(state, candidate):
-				return candidate
-		return primary_resp or ""
-	
-	def get_utterance_batched(self, state:DialogSession, action:int, batch:int=3, sampling: bool | None = None) -> List[str]:
-		messages = self._build_chat_messages(state, action)
-		log_prompt(f"[PERSUADER_CHAT]\n{format_messages_for_log(messages)}")
-		if sampling is None:
-			sampling = batch > 1
-		return self._chat_generate(messages, sampling=sampling, num_sequences=batch)
+		gen_args = {
+			**self.inference_args,
+			"num_return_sequences": batch,  # this will be changed to n inside chat_generate
+		}
+		data = self.backbone_model.chat_generate(messages, **gen_args)
+		sys_resps = self.backbone_model._cleaned_chat_resp(
+			data, assistant_role=f"{PersuasionGame.SYS}:", user_role=f"{PersuasionGame.USR}:"
+		)
+		return sys_resps
 
 	def get_utterance_w_da(self, state: DialogSession, action) -> Tuple[str, str]:
 		raise NotImplementedError
