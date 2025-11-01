@@ -1,7 +1,7 @@
 import logging
 import re
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel, DialogModel, LocalModel
@@ -18,11 +18,13 @@ class PersuaderModel(DialogModel):
 			backbone_model:GenerationModel,
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
-			inference_args: dict = {}):
+			inference_args: dict = {},
+			use_persona_context: bool = True):
 		super().__init__()
 		self.conv_examples = conv_examples
 		self.backbone_model = backbone_model
 		self.max_hist_num_turns = max_hist_num_turns
+		self.use_persona_context = use_persona_context
 		# prompts and DAs
 		self.da_prompts_mapping = {
 			da: desc for da, desc in SYSTEM_DIALOG_ACT_DEFINITIONS.items() if da in dialog_acts
@@ -52,6 +54,51 @@ class PersuaderModel(DialogModel):
 		}
 		return
 
+	def _get_persona_profile(self, state: DialogSession) -> Optional[dict]:
+		if not self.use_persona_context:
+			return None
+		return getattr(state, "_persona_profile", None)
+
+	def _build_persona_context(self, state: DialogSession) -> str:
+		if not self.use_persona_context:
+			return ""
+		profile = self._get_persona_profile(state)
+		if not profile:
+			return ""
+		big_five = (profile.get("big_five") or "").strip()
+		decision_style = (profile.get("decision_making_style") or "").strip()
+		lines: List[str] = []
+		if big_five:
+			lines.append(f"Personality: {big_five}")
+		if decision_style:
+			lines.append(f"Decision-Making Style: {decision_style}")
+		if not lines:
+			return ""
+		return "Persuadee traits:\n" + "\n".join(lines)
+
+	def _build_prompt(self, state: DialogSession, da_prompt: str) -> str:
+		history_block = ""
+		if len(state) > 0:
+			history_block = self.__proccess_exp(state, max_hist_num_turns=self.max_hist_num_turns)
+		persona_context = self._build_persona_context(state)
+		persona_instruction = ""
+		if persona_context:
+			persona_instruction = (
+				"Adapt your reasoning and tone so they resonate with the Persuadee's personality traits and "
+				"decision-making preferences described above."
+			)
+		prompt_parts = [
+			self.task_prompt,
+			persona_context,
+			history_block,
+			self.response_instruction,
+			persona_instruction,
+			da_prompt,
+			"Persuader:",
+		]
+		prompt = "\n".join(part for part in prompt_parts if part).strip()
+		return prompt
+
 	def process_exp(self):
 		prompt_exps = ""
 		for exp in self.conv_examples:
@@ -79,22 +126,7 @@ class PersuaderModel(DialogModel):
 		# planner gives an action, state is history, you need to produce a response accrd to the action
 		da = self.dialog_acts[action]
 		da_prompt = self.da_prompts_mapping[da]
-		if len(state) == 0:
-			prompt = f"""
-			{self.task_prompt}
-			{self.response_instruction}
-			{da_prompt}
-			Persuader:
-			"""
-		else:
-			prompt = f"""
-			{self.task_prompt}
-			{self.__proccess_exp(state, max_hist_num_turns=self.max_hist_num_turns)}
-			{self.response_instruction}
-			{da_prompt}
-			Persuader:
-			"""
-		prompt = prompt.replace("\t", "").strip()
+		prompt = self._build_prompt(state, da_prompt).replace("\t", "").strip()
 		log_prompt(f"[PERSUADER]\n{prompt}")
 		# produce a response
 		data = self.backbone_model.generate(prompt, **self.inference_args)
@@ -110,7 +142,7 @@ class PersuaderModel(DialogModel):
 	) -> List[str]:
 		da = self.dialog_acts[action]
 		da_prompt = self.da_prompts_mapping[da]
-		prompt = self._build_prompt(state, da_prompt)
+		prompt = self._build_prompt(state, da_prompt).replace("\t", "").strip()
 		if sampling is None:
 			sampling = batch > 1
 		return self._generate_responses(prompt, sampling=sampling, num_return_sequences=batch)
@@ -125,13 +157,15 @@ class PersuaderChatModel(PersuaderModel):
 			backbone_model:GenerationModel,
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
-			inference_args: dict = {}):
+			inference_args: dict = {},
+			use_persona_context: bool = True):
 		super().__init__(
 			dialog_acts=dialog_acts,
 			backbone_model=backbone_model,
 			max_hist_num_turns=max_hist_num_turns,
 			conv_examples=conv_examples,
-			inference_args=inference_args
+			inference_args=inference_args,
+			use_persona_context=use_persona_context
 		)
 		self.inference_args = {
 			"max_new_tokens": 128,
@@ -214,6 +248,14 @@ class PersuaderChatModel(PersuaderModel):
 			*self.prompt_examples,
 			{'role': 'system', 'content': self.new_task_prompt}
 		]
+		persona_context = self._build_persona_context(state)
+		if persona_context:
+			persona_message = (
+				f"{persona_context}\n"
+				"Adapt your reasoning and tone so they resonate with the Persuadee's personality traits and "
+				"decision-making preferences described above."
+			).strip()
+			messages.append({'role': 'system', 'content': persona_message})
 		if len(state) == 0:
 			messages.append({'role': 'user', 'content': f'{PersuasionGame.USR}: Hello.\n{da_prompt}'})
 		else:

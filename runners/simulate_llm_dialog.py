@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 import argparse
 import logging
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 def _build_agents_and_game(args):
 	"""
-	Dùng factory có sẵn của bạn để tạo backbone model + lớp chat.
+	D�ng factory c� s?n c?a b?n d? t?o backbone model + l?p chat.
 	"""
 	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
 
@@ -95,18 +95,19 @@ def _build_agents_and_game(args):
 		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
 		inference_args={
-			"max_new_tokens": 128,
+			"max_new_tokens": 256,
 			"temperature": 1.1,
 			"do_sample": True,
 			"return_full_text": False,
 		},
+		use_persona_context=getattr(args, "persuader_use_persona", False),
 	)
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=persuadee_backbone,
 		max_hist_num_turns=1,
 		conv_examples=[exp_dialog],
-		inference_args={"max_new_tokens": 128, "temperature": 0.9, "repetition_penalty": 1.0, "return_full_text": False},
+		inference_args={"max_new_tokens": 128, "temperature": 0.2, "repetition_penalty": 1.0, "return_full_text": False},
 	)
 
 	# Planner (policy) for Persuader uses an LLM-only classifier over dialog acts.
@@ -340,13 +341,18 @@ def parse_args() -> argparse.Namespace:
 		default="heuristic",
 		help=(
 			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (mapping + randomness) or 'llm' "
-			"(content-aware action selection from last 1–2 Persuader utterances)."
+			"(content-aware action selection from last 1�2 Persuader utterances)."
 		),
 	)
 	parser.add_argument(
 		"--classify-user-act",
 		action="store_true",
-		help="Run an auxiliary classification step to assign persuadee dialog acts. Dùng prompt để LLM phân loại hành động của persuadee.",
+		help="Run an auxiliary classification step to assign persuadee dialog acts. D�ng prompt d? LLM ph�n lo?i h�nh d?ng c?a persuadee.",
+	)
+	parser.add_argument(
+		"--persuader-use-persona",
+		action="store_true",
+		help="Expose persuadee personality and decision-making style to Persuader prompts.",
 	)
 	parser.add_argument(
 		"--planner-donate-prob",
