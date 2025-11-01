@@ -180,19 +180,23 @@ class PersuadeeModel(DialogModel):
 		return user_resp
 
 	def get_utterance_w_da(self, state:DialogSession, action=None, classify: bool = False) -> "Tuple[str, str]":
+		selected_da = action if action in self.dialog_acts else None
 		user_resp = self.get_utterance(state, action)
 		start_idx = user_resp.find("[")
 		end_idx = user_resp.find("]")
-		if start_idx != -1 and end_idx != -1:
+		parsed_da = None
+		if start_idx != -1 and end_idx != -1 and end_idx > start_idx + 1:
 			extracted = user_resp[start_idx + 1 : end_idx]
 			user_resp = user_resp.replace(f"[{extracted}]", "", 1).strip()
-			da = self._normalize_da(extracted) or PersuasionGame.U_Neutral
-		else:
-			da = PersuasionGame.U_Neutral
-		if classify or da == PersuasionGame.U_Neutral:
+			parsed_da = self._normalize_da(extracted)
+		da = parsed_da or selected_da or PersuasionGame.U_Neutral
+		need_classification = classify or (parsed_da is None and da == PersuasionGame.U_Neutral and selected_da is None)
+		if need_classification:
 			classified = self._classify_dialog_act(state, user_resp)
 			if classified:
 				da = classified
+			elif parsed_da is None and selected_da:
+				da = selected_da
 		# if da != PersuasionGame.U_Donate and self._is_affirmative_donation(user_resp):
 		# 	da = PersuasionGame.U_Donate
 		return da, user_resp
