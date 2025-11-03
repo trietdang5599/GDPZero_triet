@@ -16,7 +16,7 @@ def create_factor_llm(cmd_args):
 		SysModel = PersuaderModel
 		UsrModel = PersuadeeModel
 		SysPlanner = P4GSystemPlanner
-	elif cmd_args.llm == "gpt-3.5-turbo":
+	elif cmd_args.llm in ["gpt-3.5-turbo", "gpt-3.5-turbo-1106"]:
 		backbone_model = OpenAIChatModel(cmd_args.llm, cmd_args.gen_sentences)
 		SysModel = PersuaderChatModel
 		UsrModel = PersuadeeChatModel
