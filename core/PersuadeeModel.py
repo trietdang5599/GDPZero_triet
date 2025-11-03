@@ -190,7 +190,7 @@ class PersuadeeModel(DialogModel):
 			user_resp = user_resp.replace(f"[{extracted}]", "", 1).strip()
 			parsed_da = self._normalize_da(extracted)
 		da = parsed_da or selected_da or PersuasionGame.U_Neutral
-		need_classification = classify or (parsed_da is None and da == PersuasionGame.U_Neutral and selected_da is None)
+		need_classification = classify or selected_da is not None or parsed_da is None
 		if need_classification:
 			classified = self._classify_dialog_act(state, user_resp)
 			if classified:

@@ -5,6 +5,7 @@ from typing import List, Optional
 from core.game import PersuasionGame
 from core.gen_models import GenerationModel
 from core.helpers import DialogSession
+from utils.dialog_acts import USER_DIALOG_ACT_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -89,20 +90,32 @@ class PersuadeeLLMPlanner:
 					break
 		# Present most-recent first in the prompt for clarity
 		sys_utts = list(reversed(sys_utts))
-		acts = " ".join([f"[{da}]" for da in self.dialog_acts])
-		context = "\n".join([f"Persuader: {u}" for u in sys_utts])
-		instruction = (
-			"You are selecting the Persuadee's dialog act for the next turn.\n"
-			"Base your choice strictly on the conversation context and how a real persuadee would react.\n"
-			"Do not default to [neutral] unless the context clearly shows no change in stance.\n"
-			"Choose exactly one from: " + acts + ".\n"
-			"Answer with only the label in brackets, e.g., [donate]."
+		context = "\n".join([f"Persuader: {u}" for u in sys_utts]) or "Persuader: Hello."
+		definitions = "\n".join(
+			f"[{da}] {USER_DIALOG_ACT_DEFINITIONS.get(da, '').strip()}"
+			for da in self.dialog_acts
+		).strip()
+		options = " ".join(f"[{da}]" for da in self.dialog_acts)
+		guidelines = "\n".join(
+			[
+				"- Pick the single dialog act that best reflects how the Persuadee is likely to respond next.",
+				"- Use [no donation] only when the Persuadee clearly refuses or says they will not donate.",
+				"- Use [neutral] when the Persuadee is undecided or asking for more information.",
+				"- Return only the label in brackets (e.g., [neutral]).",
+			]
 		)
-		return (
-			"The conversation context (most recent first if multiple):\n"
-			+ context
-			+ "\n\n"
-			+ instruction
+		return "\n\n".join(
+			part
+			for part in (
+				"The conversation context (most recent first if multiple):",
+				context,
+				"Dialog act definitions:",
+				definitions,
+				"Guidelines:",
+				guidelines,
+				f"Available labels: {options}",
+			)
+			if part
 		)
 
 	def select_action(self, state: DialogSession) -> str:
