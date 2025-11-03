@@ -170,7 +170,7 @@ class PersuaderChatModel(PersuaderModel):
 		)
 		self.inference_args = {
 			"max_new_tokens": 128,
-			"temperature": 0.0,
+			"temperature": 0.4,
 			"repetition_penalty": 1.0,
 			"do_sample": False,  # otherwise tree will never go to the next level, unless you do OpenLoop search
 			"return_full_text": False,
