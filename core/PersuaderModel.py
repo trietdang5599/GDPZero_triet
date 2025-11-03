@@ -19,7 +19,7 @@ class PersuaderModel(DialogModel):
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
 			inference_args: dict = {},
-			use_persona_context: bool = True):
+			use_persona_context: bool = False):
 		super().__init__()
 		self.conv_examples = conv_examples
 		self.backbone_model = backbone_model
@@ -159,7 +159,7 @@ class PersuaderChatModel(PersuaderModel):
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
 			inference_args: dict = {},
-			use_persona_context: bool = True):
+			use_persona_context: bool = False):
 		super().__init__(
 			dialog_acts=dialog_acts,
 			backbone_model=backbone_model,

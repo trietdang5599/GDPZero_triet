@@ -63,6 +63,7 @@ def _build_agents_and_game(args):
 			"do_sample": True,
 			"return_full_text": False,
 		},
+		use_persona_context=getattr(args, "persuader_use_persona", False),
 	)
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
@@ -345,6 +346,11 @@ def parse_args() -> argparse.Namespace:
 		action="store_true",
 		help="Enable persona generation for the Persuadee model before simulation.",
 	)
+	parser.add_argument(
+		"--persuader-use-persona",
+		action="store_true",
+		help="Expose persuadee personality and decision-making style to Persuader prompts.",
+	)
 	return parser.parse_args()
 
 
@@ -425,7 +431,7 @@ def main() -> None:
 			user_planner=persuadee_planner,
 			collect_preferences=preference_enabled,
 			dialog_id=default_dialog_id,
-			persona_enabled=args.persona,
+			persona_enabled=args.persona or args.persuader_use_persona,
 			anchor_dataset=anchor_dataset_path,
 		)
 		actual_dialog_id = sim_result.get("dialog_id") or default_dialog_id

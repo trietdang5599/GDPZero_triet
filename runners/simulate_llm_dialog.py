@@ -158,6 +158,7 @@ def simulate_dialog(
 	user_planner: PersuadeeLLMPlanner | PersuadeeHeuristicPlanner | None = None,
 	dialog_id: Optional[str] = None,
 	anchor_dataset: Optional[Path] = None,
+	persona_enabled: bool = False,
 ) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
@@ -174,13 +175,14 @@ def simulate_dialog(
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
 	persona_profile: Optional[dict] = None
-	get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
-	if callable(get_persona_fn):
-		try:
-			persona_profile = get_persona_fn(state)
-		except TypeError:
-			persona_profile = None
-	if persona_profile:
+	if persona_enabled:
+		get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
+		if callable(get_persona_fn):
+			try:
+				persona_profile = get_persona_fn(state)
+			except TypeError:
+				persona_profile = None
+	if persona_enabled and persona_profile:
 		logger.info(
 			"Persona profile | Big-Five: %s | Decision-Making: %s",
 			persona_profile.get("big_five", "N/A"),
@@ -429,6 +431,7 @@ def main() -> None:
 			user_planner=persuadee_planner,
 			dialog_id=dialog_id,
 			anchor_dataset=anchor_dataset,
+			persona_enabled=args.persuader_use_persona,
 		)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
