@@ -181,7 +181,7 @@ class PersuadeeModel(DialogModel):
 
 	def get_utterance_w_da(self, state:DialogSession, action=None, classify: bool = False) -> "Tuple[str, str]":
 		selected_da = action if action in self.dialog_acts else None
-		user_resp = self.get_utterance(state, action)
+		user_resp = self.get_utterance(state, selected_da)
 		start_idx = user_resp.find("[")
 		end_idx = user_resp.find("]")
 		parsed_da = None
@@ -292,7 +292,7 @@ class PersuadeeChatModel(PersuadeeModel):
 		You must always answer in the format `[dialog_act] utterance`, choosing `dialog_act` from: {dialog_act_list}.
 		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
 		{dialog_act_list}
-		The following is an example conversation between a Persuader and some Persuadee.
+		\nThe following is an example conversation between a Persuader and some Persuadee.
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"The following is a new conversation between a Persuader and a Persuadee (you). "

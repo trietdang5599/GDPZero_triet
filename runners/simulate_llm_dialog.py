@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 
 import argparse
 import logging
@@ -127,23 +127,22 @@ def _build_agents_and_game(args):
 		conv_examples=[exp_dialog],
 	)
 
-	persuadee_planner = None
-	if args.user_mode in {"planner", "hybrid"}:
-		if getattr(args, "user_planner", "heuristic") == "llm":
-			persuadee_planner = PersuadeeLLMPlanner(
-				dialog_acts=persuadee.dialog_acts,
-				generation_model=persuadee_backbone,
-				max_hist_num_turns=2,
-				seed=args.seed,
-			)
-		else:
-			persuadee_planner = PersuadeeHeuristicPlanner(
-				dialog_acts=persuadee.dialog_acts,
-				generation_model=persuadee_backbone,
-				max_hist_num_turns=2,
-				donate_prob=getattr(args, "planner_donate_prob", None),
-				seed=args.seed,
-			)
+	planner_choice = getattr(args, "user_planner", "llm")
+	if planner_choice == "heuristic":
+		persuadee_planner = PersuadeeHeuristicPlanner(
+			dialog_acts=persuadee.dialog_acts,
+			generation_model=persuadee_backbone,
+			max_hist_num_turns=2,
+			donate_prob=getattr(args, "planner_donate_prob", None),
+			seed=args.seed,
+		)
+	else:
+		persuadee_planner = PersuadeeLLMPlanner(
+			dialog_acts=persuadee.dialog_acts,
+			generation_model=persuadee_backbone,
+			max_hist_num_turns=2,
+			seed=args.seed,
+		)
 
 	# Game
 	game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
@@ -154,9 +153,8 @@ def simulate_dialog(
 	game: PersuasionGame,
 	planner,
 	max_turns: int,
-	user_mode: str,
 	classify_user_act: bool,
-	user_planner: PersuadeeHeuristicPlanner | None = None,
+	user_planner: PersuadeeLLMPlanner | PersuadeeHeuristicPlanner | None = None,
 	dialog_id: Optional[str] = None,
 	anchor_dataset: Optional[Path] = None,
 ) -> dict:
@@ -213,16 +211,14 @@ def simulate_dialog(
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
 		state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
 
-		user_selected_act = None
-		if user_mode in {"planner", "hybrid"} and user_planner is not None:
-			user_selected_act = user_planner.select_action(state)
+		user_selected_act = user_planner.select_action(state) if user_planner is not None else None
 
 		user_da, user_utt = game.user_agent.get_utterance_w_da(
 			state,
 			action=user_selected_act,
-			classify=classify_user_act or user_mode == "hybrid",
+			classify=classify_user_act,
 		)
-		if user_mode in {"planner", "hybrid"} and user_selected_act and user_da == PersuasionGame.U_Neutral:
+		if user_selected_act and user_da == PersuasionGame.U_Neutral:
 			user_da = user_selected_act
 		state.add_single(PersuasionGame.USR, user_da, user_utt)
 
@@ -330,20 +326,13 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum dialog turns before forcing termination.",
 	)
 	parser.add_argument(
-		"--user-mode",
-		type=str,
-		choices=["llm", "planner", "hybrid"],
-		default="llm",
-		help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
-	)
-	parser.add_argument(
 		"--user-planner",
 		type=str,
 		choices=["heuristic", "llm"],
-		default="heuristic",
+		default="llm",
 		help=(
-			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (alias for the context-aware LLM "
-			"planner with default settings) or 'llm' (explicit context-aware LLM planner)."
+			"Choose the policy for persuadee dialog acts: 'llm' uses the context-aware LLM planner "
+			"(default) and 'heuristic' wraps legacy heuristic behavior."
 		),
 	)
 	parser.add_argument(
@@ -435,7 +424,6 @@ def main() -> None:
 			game,
 			planner,
 			args.max_turns,
-			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
 			user_planner=persuadee_planner,
 			dialog_id=dialog_id,

@@ -93,6 +93,8 @@ class PersuadeeLLMPlanner:
 		context = "\n".join([f"Persuader: {u}" for u in sys_utts])
 		instruction = (
 			"You are selecting the Persuadee's dialog act for the next turn.\n"
+			"Base your choice strictly on the conversation context and how a real persuadee would react.\n"
+			"Do not default to [neutral] unless the context clearly shows no change in stance.\n"
 			"Choose exactly one from: " + acts + ".\n"
 			"Answer with only the label in brackets, e.g., [donate]."
 		)
