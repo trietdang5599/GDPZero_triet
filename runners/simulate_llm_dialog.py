@@ -38,10 +38,56 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+def _select_persuadee_backbone(args, default_backbone):
+	api_llm = getattr(args, "persuadee_api_llm", "")
+	model_name = getattr(args, "persuadee_model_name", "")
+	if api_llm:
+		if model_name:
+			logger.warning(
+				"Ignoring --persuadee-model-name because --persuadee-api-llm is provided for Persuadee."
+			)
+		api_provider = getattr(args, "persuadee_api_provider", "openai")
+		if api_provider == "azure":
+			logger.info("Using Azure OpenAI chat model for Persuadee: %s", api_llm)
+			return AzureOpenAIChatModel(api_llm, args.gen_sentences)
+		logger.info("Using OpenAI chat model for Persuadee: %s", api_llm)
+		return OpenAIChatModel(api_llm, args.gen_sentences)
+	if model_name and model_name != getattr(args, "llm", ""):
+		logger.info("Loading Persuadee model from Hugging Face: %s", model_name)
+		return LocalModel(model_name, trust_remote_code=True)
+	return default_backbone
+
+
+def _select_persuader_backbone(args, default_backbone):
+	model_path = getattr(args, "persuader_model_path", "")
+	if model_path:
+		logger.info("Loading persuader checkpoint: %s", model_path)
+		model_kwargs = {}
+		base_model = getattr(args, "persuader_base_model", "")
+		persuader_model_name = getattr(args, "persuader_model_name", "")
+		persuadee_model_name = getattr(args, "persuadee_model_name", "")
+		if base_model:
+			model_kwargs["base_model_name_or_path"] = base_model
+		elif persuader_model_name:
+			model_kwargs["base_model_name_or_path"] = persuader_model_name
+		elif persuadee_model_name:
+			model_kwargs["base_model_name_or_path"] = persuadee_model_name
+		else:
+			model_kwargs["base_model_name_or_path"] = getattr(args, "llm", "")
+		return LocalModel(
+			model_path,
+			trust_remote_code=True,
+			model_kwargs=model_kwargs or None,
+		)
+	persuader_model_name = getattr(args, "persuader_model_name", "")
+	if persuader_model_name:
+		logger.info("Loading persuader model from Hugging Face: %s", persuader_model_name)
+		return LocalModel(persuader_model_name, trust_remote_code=True)
+	return default_backbone
+
+
 def _build_agents_and_game(args):
-	"""
-	D�ng factory c� s?n c?a b?n d? t?o backbone model + l?p chat.
-	"""
+
 	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
 
 	ontology = PersuasionGame.get_game_ontology()
@@ -54,40 +100,8 @@ def _build_agents_and_game(args):
 	user_name = PersuasionGame.USR
 	exp_dialog = DialogSession(system_name, user_name).from_history(EXP_DIALOG)
 
-	persuadee_backbone = backbone_model
-	if getattr(args, "persuadee_api_llm", ""):
-		if getattr(args, "persuadee_model_name", ""):
-			logger.warning("Ignoring --persuadee-model-name because --persuadee-api-llm is provided for Persuadee.")
-		if getattr(args, "persuadee_api_provider", "openai") == "azure":
-			logger.info("Using Azure OpenAI chat model for Persuadee: %s", args.persuadee_api_llm)
-			persuadee_backbone = AzureOpenAIChatModel(args.persuadee_api_llm, args.gen_sentences)
-		else:
-			logger.info("Using OpenAI chat model for Persuadee: %s", args.persuadee_api_llm)
-			persuadee_backbone = OpenAIChatModel(args.persuadee_api_llm, args.gen_sentences)
-	elif getattr(args, "persuadee_model_name", "") and args.persuadee_model_name != args.llm:
-		logger.info("Loading Persuadee model from Hugging Face: %s", args.persuadee_model_name)
-		persuadee_backbone = LocalModel(args.persuadee_model_name, trust_remote_code=True)
-
-	persuader_backbone = backbone_model
-	if getattr(args, "persuader_model_path", ""):
-		logger.info("Loading persuader checkpoint: %s", args.persuader_model_path)
-		model_kwargs = {}
-		if getattr(args, "persuader_base_model", ""):
-			model_kwargs["base_model_name_or_path"] = args.persuader_base_model
-		elif getattr(args, "persuader_model_name", ""):
-			model_kwargs["base_model_name_or_path"] = args.persuader_model_name
-		elif getattr(args, "persuadee_model_name", ""):
-			model_kwargs["base_model_name_or_path"] = args.persuadee_model_name
-		else:
-			model_kwargs["base_model_name_or_path"] = args.llm
-		persuader_backbone = LocalModel(
-			args.persuader_model_path,
-			trust_remote_code=True,
-			model_kwargs=model_kwargs or None,
-		)
-	elif getattr(args, "persuader_model_name", ""):
-		logger.info("Loading persuader model from Hugging Face: %s", args.persuader_model_name)
-		persuader_backbone = LocalModel(args.persuader_model_name, trust_remote_code=True)
+	persuadee_backbone = _select_persuadee_backbone(args, default_backbone=backbone_model)
+	persuader_backbone = _select_persuader_backbone(args, default_backbone=backbone_model)
 
 	persuader = SysModel(
 		dialog_acts=sys_das,
@@ -157,11 +171,10 @@ def simulate_dialog(
 	user_planner: PersuadeeLLMPlanner | PersuadeeHeuristicPlanner | None = None,
 	dialog_id: Optional[str] = None,
 	anchor_dataset: Optional[Path] = None,
-	persona_enabled: bool = False,
+	persuadee_persona_enabled: bool = False,
 ) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
-
 	if anchor_dataset is not None:
 		seeded_pairs = seed_with_p4g_anchor(
 			dataset_path=anchor_dataset,
@@ -172,16 +185,16 @@ def simulate_dialog(
 	else:
 		seeded_pairs = 0
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
-
+	
 	persona_profile: Optional[dict] = None
-	if persona_enabled:
+	if persuadee_persona_enabled:
 		get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
 		if callable(get_persona_fn):
 			try:
 				persona_profile = get_persona_fn(state)
 			except TypeError:
 				persona_profile = None
-	if persona_enabled and persona_profile:
+	if persona_profile and persuadee_persona_enabled:
 		logger.info(
 			"Persona profile | Big-Five: %s | Decision-Making: %s",
 			persona_profile.get("big_five", "N/A"),
@@ -343,6 +356,11 @@ def parse_args() -> argparse.Namespace:
 		help="Run an auxiliary classification step to assign persuadee dialog acts. D�ng prompt d? LLM ph�n lo?i h�nh d?ng c?a persuadee.",
 	)
 	parser.add_argument(
+		"--use-persona",
+		action="store_true",
+		help="Expose persuadee personality and decision-making style to Persuadee prompts.",
+	)
+	parser.add_argument(
 		"--persuader-use-persona",
 		action="store_true",
 		help="Expose persuadee personality and decision-making style to Persuader prompts.",
@@ -430,7 +448,7 @@ def main() -> None:
 			user_planner=persuadee_planner,
 			dialog_id=dialog_id,
 			anchor_dataset=anchor_dataset,
-			persona_enabled=args.persuader_use_persona,
+			persuadee_persona_enabled=args.use_persona,
 		)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
