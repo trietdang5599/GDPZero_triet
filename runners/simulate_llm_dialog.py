@@ -97,8 +97,6 @@ def _build_agents_and_game(args):
 		inference_args={
 			"max_new_tokens": 256,
 			"temperature": 0.7,
-			"top_k": 50,             # hoặc dùng top_k=50
-			"no_repeat_ngram_size": 3,
 			"do_sample": True,
 			"return_full_text": False,
 		},
