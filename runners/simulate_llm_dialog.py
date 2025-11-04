@@ -96,8 +96,8 @@ def _build_agents_and_game(args):
 		conv_examples=[exp_dialog],
 		inference_args={
 			"max_new_tokens": 256,
-			"temperature": 0.6,
-			"top_p": 0.8,
+			"temperature": 0.7,
+			# "top_p": 0.8,
 			"do_sample": True,
 			"return_full_text": False,
 		},
