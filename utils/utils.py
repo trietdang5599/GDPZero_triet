@@ -67,10 +67,12 @@ def set_determinitic_seed(seed: Optional[int], enforce_determinism: bool = False
 	"""
 	if seed is None:
 		if enforce_determinism:
-			logging.getLogger(__name__).warning(
-				"Deterministic mode requested but no seed provided; leaving RNG state unchanged."
+			seed = 0
+			logging.getLogger(__name__).info(
+				"Deterministic mode requested without an explicit seed; defaulting to seed=0."
 			)
-		return None
+		else:
+			return None
 
 	if enforce_determinism and "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
 		os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"

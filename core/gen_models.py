@@ -619,6 +619,11 @@ class LocalModel(GenerationModel):
 		trust_remote_code: bool = False,
 		model_kwargs: Optional[Dict] = None,
 	):
+		if cuda and torch.cuda.is_available() and torch.are_deterministic_algorithms_enabled():
+			logger.info(
+				"Deterministic torch mode detected; forcing LocalModel to run on CPU to avoid non-deterministic CUDA kernels."
+			)
+			cuda = False
 		self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 		self.cuda = self.device.type == "cuda"
 		load_kwargs = model_kwargs.copy() if model_kwargs else {}
