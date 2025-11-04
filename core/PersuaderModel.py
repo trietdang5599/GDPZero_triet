@@ -60,7 +60,7 @@ class PersuaderModel(DialogModel):
 		return getattr(state, "_persona_profile", None)
 
 	def _build_persona_context(self, state: DialogSession) -> str:
-		logger.info("Is Persuader knew personality and decision making style: %s", self.use_persona_context)
+		# logger.info("Is Persuader knew personality and decision making style: %s", self.use_persona_context)
 		if not self.use_persona_context:
 			return ""
 		profile = self._get_persona_profile(state)
