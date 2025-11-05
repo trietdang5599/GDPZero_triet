@@ -121,22 +121,22 @@ class PersuadeeModel(DialogModel):
 		return None
 
 	def _build_classification_segments(self, state: DialogSession, response: str) -> List[str]:
-		context = state.to_string_rep(
-			keep_user_da=True,
-			keep_sys_da=True,
-			max_turn_to_display=self.max_hist_num_turns,
-		).strip()
+		# context = state.to_string_rep(
+		# 	keep_user_da=True,
+		# 	keep_sys_da=True,
+		# 	max_turn_to_display=self.max_hist_num_turns,
+		# ).strip()
 		response_text = response.strip()
 		acts = ", ".join([f"[{da}]" for da in self.dialog_acts])
 		definitions = "\n".join([f"[{da}] {desc}" for da, desc in self.da_definitions.items()])
 		segments = []
-		if context:
-			segments.append(f"Conversation so far:\n{context}")
+		# if context:
+		# 	segments.append(f"Conversation so far:\n{context}")
 		segments.append(f"Persuadee last response: {response_text}")
 		segments.append(f"Dialog act definitions:\n{definitions}")
 		segments.append(
 			f"Select the single best dialog act label from {acts}. "
-			"Answer with just the label in brackets (e.g., [donate])."
+			"Answer with just the label in brackets (e.g., [donate], [neutral], [no donation])."
 		)
 		return segments
 
@@ -194,7 +194,6 @@ class PersuadeeModel(DialogModel):
 			classify
 			or selected_da is not None
 			or parsed_da is None
-			or da == PersuasionGame.U_NoDonation
 		)
 		if need_classification:
 			classified = self._classify_dialog_act(state, user_resp)
@@ -202,75 +201,33 @@ class PersuadeeModel(DialogModel):
 				da = classified
 			elif parsed_da is None and selected_da:
 				da = selected_da
-		# if da != PersuasionGame.U_Donate and self._is_affirmative_donation(user_resp):
-		# 	da = PersuasionGame.U_Donate
+		if da == PersuasionGame.U_NoDonation and self._looks_like_question(user_resp):
+			da = PersuasionGame.U_Neutral
 		return da, user_resp
 
-	def _is_affirmative_donation(self, text: str) -> bool:
-		normalized = text.lower()
-		if not any(keyword in normalized for keyword in ("donat", "contribute", "give", "pledge")):
+	def _looks_like_question(self, text: str) -> bool:
+		normalized = (text or "").strip().lower()
+		if not normalized:
 			return False
-		negative_phrases = [
-			"do not donate",
-			"don't donate",
-			"cannot donate",
-			"can't donate",
-			"won't donate",
-			"not donate",
-			"no donation",
-			"never donate",
-			"unable to donate",
-			"i can't give",
-			"i cannot give",
-			"i won't give",
-			"i won't be able to donate",
-		]
-		for phrase in negative_phrases:
-			if phrase in normalized:
-				return False
-		commit_phrases = [
-			"i will donate",
-			"i'll donate",
-			"i am willing to donate",
-			"i'm willing to donate",
-			"i plan to donate",
-			"i intend to donate",
-			"i can donate",
-			"happy to donate",
-			"ready to donate",
-			"i will contribute",
-			"i'll contribute",
-			"i can contribute",
-			"count me in for",
-			"i will give",
-			"i'll give",
-			"i pledge to donate",
-			"i would like to donate",
-			"i'd like to donate",
-			"let me donate",
-		]
-		if any(phrase in normalized for phrase in commit_phrases):
+		if "?" in normalized:
 			return True
-		# amount_pattern = re.compile(
-		# 	r"(?:\$|\busd\b\s*)\s*\d+(?:\.\d+)?\s*(?:dollars?|usd)?|"
-		# 	r"\d+(?:\.\d+)?\s*(?:dollars?|bucks?|usd|eur|euro|pounds?)",
-		# 	re.IGNORECASE,
-		# )
-		if "donate" in normalized or "donation" in normalized:
-			# if amount_pattern.search(text):
-			# 	return True
-			future_phrases = [
-				"will donate",
-				"can donate",
-				"shall donate",
-				"going to donate",
-				"willing to donate",
-				"happy to contribute",
-			]
-			if any(phrase in normalized for phrase in future_phrases):
-				return True
-		return False
-
+		question_starters = (
+			"can ",
+			"could ",
+			"would ",
+			"will ",
+			"what ",
+			"why ",
+			"how ",
+			"when ",
+			"where ",
+			"who ",
+			"is ",
+			"are ",
+			"do ",
+			"does ",
+		)
+		return normalized.startswith(question_starters)
 
 class PersuadeeChatModel(PersuadeeModel):
 	def __init__(self,
