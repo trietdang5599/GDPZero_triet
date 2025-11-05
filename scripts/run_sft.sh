@@ -44,6 +44,12 @@ NUM_EPOCHS="${NUM_EPOCHS:-5}"
 LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 MAX_LENGTH="${MAX_LENGTH:-2048}"
 
+# role + field map 
+SYSTEM_FIELD="${SYSTEM_FIELD:-system}"      # key chứa lời của Persuader trong data
+USER_FIELD="${USER_FIELD:-user}"            # key chứa lời của Persuadee trong data
+SYSTEM_ROLE="${SYSTEM_ROLE:-Persuader}"
+USER_ROLE="${USER_ROLE:-Persuadee}"
+
 mkdir -p "${OUTPUT_DIR}"
 
 LORA_ARGS=()
@@ -99,9 +105,13 @@ accelerate launch \
   --batch-size "${BATCH_SIZE}" \
   --gradient-accumulation "${GRAD_ACCUM}" \
   --gradient-checkpointing \
-  --num-train-epochs "${NUM_EPOCHS}" \  
+  --num-train-epochs "${NUM_EPOCHS}" \
   --learning-rate "${LEARNING_RATE}" \
   --max-length "${MAX_LENGTH}" \
+  --system-field "${SYSTEM_FIELD}" \
+  --user-field "${USER_FIELD}" \
+  --system-role "${SYSTEM_ROLE}" \
+  --user-role "${USER_ROLE}" \
   "${LORA_ARGS[@]}" \
   "${PRECISION_ARGS[@]}" \
   "${QUANT_ARGS[@]}" \
