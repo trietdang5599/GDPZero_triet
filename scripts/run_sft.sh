@@ -94,8 +94,6 @@ accelerate launch \
   --algorithm sft \
   --train-dataset-path "${DATASET_TRAIN_PATH}" \
   --val-dataset-path "${DATASET_VAL_PATH}" \
-  --system-field system --user-field user \
-  --system-role Persuader --user-role Persuadee \
   --model-name "${MODEL_NAME}" \
   --output-dir "${OUTPUT_DIR}" \
   --batch-size "${BATCH_SIZE}" \
