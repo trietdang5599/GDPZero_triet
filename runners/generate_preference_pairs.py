@@ -97,7 +97,6 @@ def _build_agents_and_game(args):
 				dialog_acts=persuadee.dialog_acts,
 				generation_model=backbone_model,
 				max_hist_num_turns=2,
-				donate_prob=getattr(args, "planner_donate_prob", None),
 				seed=args.seed,
 			)
 
@@ -300,12 +299,6 @@ def parse_args() -> argparse.Namespace:
 		"--classify-user-act",
 		action="store_true",
 		help="Run an auxiliary classification step to assign persuadee dialog acts. Dùng prompt để LLM phân loại hành động của persuadee.",
-	)
-	parser.add_argument(
-		"--planner-donate-prob",
-		type=float,
-		default=None,
-		help="(Deprecated) Ignored; heuristic persuadee now samples donation responses freely.",
 	)
 	parser.add_argument(
 		"--anchor-dataset",

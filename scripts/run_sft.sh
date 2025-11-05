@@ -30,19 +30,19 @@ LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 
-GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
-CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-0}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-1}"
+CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-1}"
 FP16="${FP16:-0}"
-BF16="${BF16:-0}"
-LOAD_IN_4BIT="${LOAD_IN_4BIT:-0}"
+BF16="${BF16:-1}"
+LOAD_IN_4BIT="${LOAD_IN_4BIT:-1}"
 LOAD_IN_8BIT="${LOAD_IN_8BIT:-0}"
 DEVICE_MAP="${DEVICE_MAP:-}"
 
-BATCH_SIZE="${BATCH_SIZE:-4}"
-GRAD_ACCUM="${GRAD_ACCUM:-16}"
-NUM_EPOCHS="${NUM_EPOCHS:-10}"
-LEARNING_RATE="${LEARNING_RATE:-2e-5}"
-MAX_LENGTH="${MAX_LENGTH:-512}"
+BATCH_SIZE="${BATCH_SIZE:-1}"
+GRAD_ACCUM="${GRAD_ACCUM:-32}"
+NUM_EPOCHS="${NUM_EPOCHS:-5}"
+LEARNING_RATE="${LEARNING_RATE:-1e-4}"
+MAX_LENGTH="${MAX_LENGTH:-2048}"
 
 mkdir -p "${OUTPUT_DIR}"
 
@@ -88,6 +88,8 @@ accelerate launch \
   --main_process_port "${MASTER_PORT}" \
   --gpu_ids "${GPU_IDS}" \
   --num_processes "${NUM_GPUS}" \
+  --system-field system --user-field user \
+  --system-role Persuader --user-role Persuadee \
   --config_file "${ACCELERATE_CFG}" \
   --multi_gpu \
   "${REPO_ROOT}/train_llm.py" \
@@ -99,7 +101,7 @@ accelerate launch \
   --batch-size "${BATCH_SIZE}" \
   --gradient-accumulation "${GRAD_ACCUM}" \
   --gradient-checkpointing \
-  --num-train-epochs "${NUM_EPOCHS}" \
+  --num-train-epochs "${NUM_EPOCHS}" \  
   --learning-rate "${LEARNING_RATE}" \
   --max-length "${MAX_LENGTH}" \
   "${LORA_ARGS[@]}" \

@@ -11,8 +11,8 @@ OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/preference_pairs.jsonl}"
 LLM_MODEL="${LLM_MODEL:-gpt-3.5-turbo}"
 NUM_DIALOGS="${NUM_DIALOGS:-30}"
 NUM_MCTS_SIMS="${NUM_MCTS_SIMS:-10}"
-ONLY_SUCCESS="${ONLY_SUCCESS:-1}"
-LOG_TURN_DETAILS="${LOG_TURN_DETAILS:-1}"
+# ONLY_SUCCESS="${ONLY_SUCCESS:-1}"
+# LOG_TURN_DETAILS="${LOG_TURN_DETAILS:-1}"
 
 mkdir -p "$(dirname "${OUTPUT_PATH}")"
 
@@ -25,12 +25,12 @@ CMD=(
   --output "${OUTPUT_PATH}"
 )
 
-if [[ "${ONLY_SUCCESS}" != "0" ]]; then
-  CMD+=(--only-success)
-fi
-if [[ "${LOG_TURN_DETAILS}" != "0" ]]; then
-  CMD+=(--log-turn-details)
-fi
+# if [[ "${ONLY_SUCCESS}" != "0" ]]; then
+#   CMD+=(--only-success)
+# fi
+# if [[ "${LOG_TURN_DETAILS}" != "0" ]]; then
+#   CMD+=(--log-turn-details)
+# fi
 
 echo "[build_prefs] Running: ${CMD[*]}"
 "${CMD[@]}"

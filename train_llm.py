@@ -239,40 +239,94 @@ def build_examples(
     user_field: str,
     system_role: str,
     user_role: str,
+    strip_role_prefix_in_completion: bool = True,
+    require_next_is_system: bool = True,
 ) -> List[ConversationExample]:
-    """Construct SFT examples consisting of (prompt, completion) pairs."""
+    """
+    Construct SFT (prompt, completion) pairs so that:
+      - Prompt = full history tới hiện tại, kết thúc bằng f"{system_role}: "
+      - Completion = NỘI DUNG của lượt system kế tiếp (không kèm 'system_role: ')
+
+    Notes:
+      - Chỉ tạo sample khi lượt hiện tại có USER và lượt kế tiếp có SYSTEM (nếu require_next_is_system=True).
+      - Tự động loại role prefix ở completion nếu strip_role_prefix_in_completion=True.
+      - Bỏ qua turns bẩn/rỗng/thiếu field.
+    """
     examples: List[ConversationExample] = []
+
+    def _clean_role_pref(text: str, role: str) -> str:
+        if not text:
+            return ""
+        t = text.strip()
+        if strip_role_prefix_in_completion:
+            # hard strip theo tiền tố "<role>[:\-–—]\s*"
+            prefixes = [f"{role}:", f"{role} -", f"{role} —", f"{role} –", f"{role} :"]
+            prefixes += [p.lower() for p in prefixes]
+            for p in prefixes:
+                if t.startswith(p) or t.lower().startswith(p):
+                    t = t[len(p):].lstrip()
+                    break
+        return t
+
     for record in records:
         dialog = record.get("dialog")
         if not isinstance(dialog, list):
             continue
+
         history_lines: List[str] = []
         for turn_idx, turn in enumerate(dialog):
             if not isinstance(turn, dict):
                 continue
+
+            # Lấy văn bản từng bên (có thể là chuỗi hoặc list)
             sys_text = join_utterances(turn.get(system_field))
             usr_text = join_utterances(turn.get(user_field))
+
+            # Append theo thứ tự xuất hiện trong turn
             if sys_text:
                 history_lines.append(f"{system_role}: {sys_text}")
             if usr_text:
                 history_lines.append(f"{user_role}: {usr_text}")
+
+            # Xác định turn kế
             next_turn = dialog[turn_idx + 1] if turn_idx + 1 < len(dialog) else None
-            if not usr_text or not isinstance(next_turn, dict):
+            if next_turn is None:
                 continue
-            next_sys = join_utterances(next_turn.get(system_field))
-            if not next_sys:
+
+            # Điều kiện để tạo sample:
+            #   - Lượt hiện tại phải có USER (để mô hình dự đoán reply của SYSTEM)
+            #   - Lượt sau phải có SYSTEM (nếu require_next_is_system=True)
+            if not usr_text:
                 continue
+
+            next_sys_raw = join_utterances(next_turn.get(system_field))
+            if require_next_is_system and not next_sys_raw:
+                # Nếu lượt kế không có system, bỏ qua sample này
+                continue
+            if not next_sys_raw:
+                # Không có completion hợp lệ
+                continue
+
+            # Build prompt (kết thúc bằng "system_role: ")
             context_text = "\n".join(history_lines)
-            prompt = f"{context_text}\n{system_role}: " if context_text else f"{system_role}: "
+            prompt = (context_text + "\n" if context_text else "") + f"{system_role}: "
+
+            # Làm sạch completion (loại role prefix nếu có)
+            completion = _clean_role_pref(next_sys_raw, system_role)
+            if not completion:
+                continue
+
             examples.append(
                 ConversationExample(
                     prompt=prompt,
-                    completion=next_sys,
+                    completion=completion,
                     dialog_id=str(record.get("id", turn_idx)),
                     turn_index=turn_idx + 1,
                 )
             )
+
     return examples
+
 
 # issue might be here
 def build_preference_examples(
