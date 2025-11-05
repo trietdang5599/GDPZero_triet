@@ -106,11 +106,11 @@ def _build_agents_and_game(args):
 	persuader = SysModel(
 		dialog_acts=sys_das,
 		backbone_model=persuader_backbone,
-		max_hist_num_turns=2,
+		max_hist_num_turns=3,
 		conv_examples=[exp_dialog],
 		inference_args={
 			"max_new_tokens": 256,
-			"temperature": 0.7,
+			"temperature": 0.8,
 			"do_sample": True,
 			"return_full_text": False,
 		},
