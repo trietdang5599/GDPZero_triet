@@ -45,8 +45,8 @@ LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 MAX_LENGTH="${MAX_LENGTH:-2048}"
 
 # role + field map 
-SYSTEM_FIELD="${SYSTEM_FIELD:-system}"      # key chứa lời của Persuader trong data
-USER_FIELD="${USER_FIELD:-user}"            # key chứa lời của Persuadee trong data
+SYSTEM_FIELD="${SYSTEM_FIELD:-er}"      # key chứa lời của Persuader trong data
+USER_FIELD="${USER_FIELD:-ee}"            # key chứa lời của Persuadee trong data
 SYSTEM_ROLE="${SYSTEM_ROLE:-Persuader}"
 USER_ROLE="${USER_ROLE:-Persuadee}"
 
