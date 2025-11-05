@@ -88,14 +88,14 @@ accelerate launch \
   --main_process_port "${MASTER_PORT}" \
   --gpu_ids "${GPU_IDS}" \
   --num_processes "${NUM_GPUS}" \
-  --system-field system --user-field user \
-  --system-role Persuader --user-role Persuadee \
   --config_file "${ACCELERATE_CFG}" \
   --multi_gpu \
   "${REPO_ROOT}/train_llm.py" \
   --algorithm sft \
   --train-dataset-path "${DATASET_TRAIN_PATH}" \
   --val-dataset-path "${DATASET_VAL_PATH}" \
+  --system-field system --user-field user \
+  --system-role Persuader --user-role Persuadee \
   --model-name "${MODEL_NAME}" \
   --output-dir "${OUTPUT_DIR}" \
   --batch-size "${BATCH_SIZE}" \
