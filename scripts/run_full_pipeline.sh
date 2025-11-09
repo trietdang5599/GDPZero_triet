@@ -5,9 +5,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
-# DATASET_PATH="${DATASET_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based.pkl}"
-DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-train.jsonl}"
-DATASET_VAL_PATH="${DATASET_VAL_PATH:-${REPO_ROOT}/data/p4g/300_dialog_turn_based-val.jsonl}"
+# Dataset presets (defaults to P4G unless overridden)
+USE_CB_DATASET="${USE_CB_DATASET:-0}"
+USE_P4G_DATASET="${USE_P4G_DATASET:-0}"
+if [[ "${USE_CB_DATASET}" != "0" && "${USE_P4G_DATASET}" != "0" ]]; then
+  echo "[run_full_pipeline] Only one of USE_CB_DATASET or USE_P4G_DATASET can be enabled." >&2
+  exit 1
+fi
+
+DEFAULT_P4G_TRAIN="${REPO_ROOT}/data/p4g/300_dialog_turn_based-train.jsonl"
+DEFAULT_P4G_VAL="${REPO_ROOT}/data/p4g/300_dialog_turn_based-val.jsonl"
+
+DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH:-${DEFAULT_P4G_TRAIN}}"
+DATASET_VAL_PATH="${DATASET_VAL_PATH:-${DEFAULT_P4G_VAL}}"
+
+if [[ "${USE_CB_DATASET}" != "0" ]]; then
+  CB_DATA_DIR="${REPO_ROOT}/data/CraigslistBargains"
+  DATASET_TRAIN_PATH="${CB_DATA_DIR}/test.json"
+  DATASET_VAL_PATH="${CB_DATA_DIR}/val.json"
+elif [[ "${USE_P4G_DATASET}" != "0" ]]; then
+  DATASET_TRAIN_PATH="${DEFAULT_P4G_TRAIN}"
+  DATASET_VAL_PATH="${DEFAULT_P4G_VAL}"
+fi
+
 PREF_PATH="${PREF_PATH:-${REPO_ROOT}/preference_pairs.jsonl}"
 SFT_OUTPUT="${SFT_OUTPUT:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-sft}"
 DPO_OUTPUT="${DPO_OUTPUT:-${REPO_ROOT}/outputs/${MODEL_NAME//\//_}-dpo}"
@@ -32,6 +52,8 @@ OUTPUT_DIR="${SFT_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
 DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH}" \
 DATASET_VAL_PATH="${DATASET_VAL_PATH}" \
+USE_CB_DATASET="${USE_CB_DATASET}" \
+USE_P4G_DATASET="${USE_P4G_DATASET}" \
 bash "${SCRIPT_DIR}/run_sft.sh" "$@"
 [[ -d "${SFT_OUTPUT}" ]] || { echo "[error] SFT output directory missing at ${SFT_OUTPUT}" >&2; exit 1; }
 
