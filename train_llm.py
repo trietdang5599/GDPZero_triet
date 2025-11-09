@@ -184,11 +184,11 @@ def load_raw_records(dataset_path: Path) -> List[Dict[str, Any]]:
         with dataset_path.open("rb") as f:
             payload = pickle.load(f)
     elif suffix in {".json", ".js"}:
-        with dataset_path.open("r", encoding="utf-8") as f:
+        with dataset_path.open("r", encoding="utf-8-sig") as f:
             payload = json.load(f)
     elif suffix in {".jsonl", ".ndjson"}:
         records: List[Any] = []
-        with dataset_path.open("r", encoding="utf-8") as f:
+        with dataset_path.open("r", encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
                 if line:
