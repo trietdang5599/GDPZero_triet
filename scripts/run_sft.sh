@@ -50,6 +50,32 @@ USER_FIELD="${USER_FIELD:-ee}"            # key chứa lời của Persuadee tro
 SYSTEM_ROLE="${SYSTEM_ROLE:-Persuader}"
 USER_ROLE="${USER_ROLE:-Persuadee}"
 
+# Optional dataset presets
+USE_CB_DATASET="${USE_CB_DATASET:-0}"
+USE_P4G_DATASET="${USE_P4G_DATASET:-0}"
+if [[ "${USE_CB_DATASET}" != "0" && "${USE_P4G_DATASET}" != "0" ]]; then
+  echo "Only one of USE_CB_DATASET or USE_P4G_DATASET can be enabled." >&2
+  exit 1
+fi
+if [[ "${USE_CB_DATASET}" != "0" ]]; then
+  CB_DATA_DIR="${REPO_ROOT}/data/CraigslistBargains"
+  DATASET_TRAIN_PATH="${CB_DATA_DIR}/test.json"
+  DATASET_VAL_PATH="${CB_DATA_DIR}/val.json"
+  SYSTEM_FIELD="seller"
+  USER_FIELD="buyer"
+  SYSTEM_ROLE="Seller"
+  USER_ROLE="Buyer"
+elif [[ "${USE_P4G_DATASET}" != "0" ]]; then
+  P4G_DATA_DIR="${REPO_ROOT}/data/p4g"
+  DATASET_TRAIN_PATH="${P4G_DATA_DIR}/300_dialog_turn_based-train.jsonl"
+  DATASET_VAL_PATH="${P4G_DATA_DIR}/300_dialog_turn_based-val.jsonl"
+  SYSTEM_FIELD="er"
+  USER_FIELD="ee"
+  SYSTEM_ROLE="Persuader"
+  USER_ROLE="Persuadee"
+fi
+
+
 mkdir -p "${OUTPUT_DIR}"
 
 LORA_ARGS=()

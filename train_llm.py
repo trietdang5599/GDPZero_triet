@@ -220,6 +220,93 @@ def load_raw_records(dataset_path: Path) -> List[Dict[str, Any]]:
     raise ValueError("Dataset must be a mapping or a list of dialog records.")
 
 
+def _infer_cb_agent_role(agent_entry: Any) -> str:
+    """Normalise agent role strings from Craigslist Bargains metadata."""
+    if agent_entry is None:
+        return ""
+    text = str(agent_entry).strip().lower()
+    if "seller" in text or "poster" in text:
+        return "seller"
+    if "buyer" in text or "customer" in text:
+        return "buyer"
+    return text
+
+
+def _craigslist_events_to_dialog(
+    record: Dict[str, Any],
+    *,
+    system_field: str,
+    user_field: str,
+) -> List[Dict[str, Any]]:
+    """Convert raw Craigslist Bargains events into generic dialog format."""
+    events = record.get("events")
+    if not isinstance(events, list):
+        return []
+
+    scenario = record.get("scenario") or {}
+    kbs = scenario.get("kbs") or []
+    agent_roles: Dict[int, str] = {}
+    for idx, kb in enumerate(kbs):
+        personal = (kb or {}).get("personal") or {}
+        role = _infer_cb_agent_role(personal.get("Role"))
+        if role:
+            agent_roles[idx] = role
+
+    agents_meta = record.get("agents") or {}
+
+    def resolve_field(agent_idx: Any) -> Optional[str]:
+        if agent_idx is None:
+            return None
+        idx = int(agent_idx) if isinstance(agent_idx, (int, str)) and str(agent_idx).isdigit() else agent_idx
+        role = agent_roles.get(idx)
+        if not role:
+            role = _infer_cb_agent_role(agents_meta.get(str(agent_idx)))
+        if role == "seller":
+            return system_field
+        if role == "buyer":
+            return user_field
+        # Default heuristic: agent 1 -> system, agent 0 -> user
+        if isinstance(idx, int):
+            return system_field if idx == 1 else user_field
+        return None
+
+    dialog: List[Dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("action") != "message":
+            continue
+        text = join_utterances(event.get("data"))
+        if not text:
+            continue
+        field_name = resolve_field(event.get("agent"))
+        if field_name is None:
+            continue
+        dialog.append({field_name: text})
+    return dialog
+
+
+def normalise_dialog_records(
+    records: List[Dict[str, Any]],
+    *,
+    system_field: str,
+    user_field: str,
+) -> List[Dict[str, Any]]:
+    """Ensure each record contains a `dialog` list by adapting Craigslist-style payloads."""
+    for record in records:
+        if isinstance(record.get("dialog"), list):
+            continue
+        if "events" in record:
+            converted = _craigslist_events_to_dialog(
+                record,
+                system_field=system_field,
+                user_field=user_field,
+            )
+            if converted:
+                record["dialog"] = converted
+    return records
+
+
 def join_utterances(raw: Any) -> str:
     """Normalise utterance fields (string or list of strings) into a single strip()ed string."""
     if raw is None:
@@ -495,8 +582,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-dataset-path",
         type=Path,
-        default=None,
-        help="Explicit path to the training split. Overrides --dataset-path when set.",
+        default=Path("data/CraigslistBargains/test.json"),
+        help="Explicit path to the training split. Defaults to the Craigslist Bargains test split.",
     )
     parser.add_argument(
         "--val-dataset-path",
@@ -517,10 +604,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-ratio", type=float, default=0.1, help="Fraction of samples reserved for validation.")
     parser.add_argument("--max-samples", type=int, default=0, help="Optional cap on total samples (0 = use all).")
     parser.add_argument("--num-negatives", type=int, default=1, help="Number of rejected completions to sample per positive example when synthesizing preference pairs.")
-    parser.add_argument("--system-field", type=str, default="er", help="Field name for system utterances in the dataset.")
-    parser.add_argument("--user-field", type=str, default="ee", help="Field name for user utterances in the dataset.")
-    parser.add_argument("--system-role", type=str, default="Persuader", help="Role label for system turns.")
-    parser.add_argument("--user-role", type=str, default="Persuadee", help="Role label for user turns.")
+    parser.add_argument("--system-field", type=str, default="seller", help="Field name for system utterances in the dataset.")
+    parser.add_argument("--user-field", type=str, default="buyer", help="Field name for user utterances in the dataset.")
+    parser.add_argument("--system-role", type=str, default="Seller", help="Role label for system turns.")
+    parser.add_argument("--user-role", type=str, default="Buyer", help="Role label for user turns.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--fp16", action="store_true", help="Use float16 mixed precision if available.")
     parser.add_argument("--bf16", action="store_true", help="Use bfloat16 mixed precision if available.")
@@ -566,8 +653,21 @@ def main() -> None:
     dataset_path = args.train_dataset_path
     if dataset_path is None:
         raise ValueError("Provide --dataset-path or --train-dataset-path to specify training data.")
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Training dataset not found at {dataset_path}")
     train_records = load_raw_records(dataset_path)
     val_records = load_raw_records(args.val_dataset_path) if args.val_dataset_path else None
+    train_records = normalise_dialog_records(
+        train_records,
+        system_field=args.system_field,
+        user_field=args.user_field,
+    )
+    if val_records:
+        val_records = normalise_dialog_records(
+            val_records,
+            system_field=args.system_field,
+            user_field=args.user_field,
+        )
     # if val_records is not None and args.validation_ratio > 0:
     #     warnings.warn(
     #         "Ignoring validation_ratio because --val-dataset-path was provided.",
