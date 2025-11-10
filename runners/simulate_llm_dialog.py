@@ -261,7 +261,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--llm",
 		type=str,
-		default="local",
+		default="llamda-3-8b",
 		help="Backbone model identifier (same choices as runners/gdpzero).",
 	)
 	parser.add_argument(
