@@ -340,12 +340,6 @@ def parse_args() -> argparse.Namespace:
 		help="Expose persuadee personality and decision-making style to Persuader prompts.",
 	)
 	parser.add_argument(
-		"--planner-donate-prob",
-		type=float,
-		default=None,
-		help="(Deprecated) Ignored; heuristic persuadee now samples donation responses freely.",
-	)
-	parser.add_argument(
 		"--seed",
 		type=int,
 		default=None,
