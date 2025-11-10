@@ -423,14 +423,22 @@ def export_preference_pair(
 		return None
 
 	conversation = state.to_string_rep(keep_sys_da=False, keep_user_da=False)
-	prompt_header = (
-		"You are the Persuader. Continue the conversation in a way that persuades "
-		"the Persuadee to donate to Save the Children."
-	)
+	prompt_header = "You are the Persuader. Generate the Persuader reply that advances persuasion in a way that persuades the Persuadee to donate to Save the Children."
+	persona_profile = getattr(state, "_persona_profile", None)
+	persona_block = ""
+	if persona_profile:
+		persona_lines = []
+		if persona_profile.get("big_five"):
+			persona_lines.append(f"Persuadee Personality: {persona_profile['big_five']}")
+		if persona_profile.get("decision_making_style"):
+			persona_lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
+		if persona_lines:
+			persona_block = "Persona hints:\n" + "\n".join(persona_lines) + "\n"
+
 	if conversation:
-		prompt = f"{prompt_header}\nConversation so far:\n{conversation}\n{system_role}:"
+		prompt = f"{prompt_header}\n{persona_block}Conversation so far:\n{conversation}\n{system_role}:"
 	else:
-		prompt = f"{prompt_header}\nConversation so far:\n{system_role}:"
+		prompt = f"{prompt_header}\n{persona_block}{system_role}:"
 
 	# dialog_id = hashlib.sha1(hashable_state.encode("utf-8")).hexdigest()
 	preference_entry = {
