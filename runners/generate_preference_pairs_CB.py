@@ -21,7 +21,7 @@ from core.SellerModel import SellerModel
 from core.BuyerModel import BuyerModel
 from core.game import NegotiationGame
 from core.helpers import DialogSession
-from core.mcts import OpenLoopMCTS
+from core.mcts import OpenLoopMCTSParallel
 from core.model_factory import create_factor_llm
 from utils.utils import (
 	dotdict,
@@ -343,7 +343,7 @@ def simulate_dialog(
 		if final_outcome != 0.0:
 			break
 
-		dialog_planner = OpenLoopMCTS(game, planner, mcts_cfg)
+		dialog_planner = OpenLoopMCTSParallel(game, planner, mcts_cfg)
 		for _ in range(num_mcts_sims):
 			dialog_planner.search(state)
 
@@ -408,11 +408,13 @@ def simulate_dialog(
 			break
 
 	final_outcome = game.get_dialog_ended(state)
+	transcript = state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1)
 	sim_result = {
 		"dialog_id": active_dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
+		"transcript": transcript,
 	}
 	if not collect_preferences or final_outcome != 1.0:
 		return sim_result, []
@@ -645,6 +647,9 @@ def main() -> None:
 				turn["user_utterance"],
 			)
 		logger.info("Simulation outcome: %s", sim_result["outcome"])
+		transcript = sim_result.get("transcript")
+		if transcript:
+			logger.info("Dialog transcript:\n%s", transcript)
 
 		if preference_enabled and sim_result["outcome"] == 1.0 and pref_candidates:
 			for candidate in pref_candidates:
