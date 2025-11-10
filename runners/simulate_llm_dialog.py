@@ -259,6 +259,12 @@ def parse_args() -> argparse.Namespace:
 		description="Simulate a persuasion dialog where both agents are powered by LLMs."
 	)
 	parser.add_argument(
+		"--llm",
+		type=str,
+		default="local",
+		help="Backbone model identifier (same choices as runners/gdpzero).",
+	)
+	parser.add_argument(
 		"--gen-sentences",
 		type=int,
 		default=3,
