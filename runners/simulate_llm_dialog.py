@@ -12,7 +12,6 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(0, str(PROJECT_ROOT))
-import numpy as np
 
 DEFAULT_ANCHOR_DATASET = (PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-test.jsonl").resolve()
 
@@ -21,6 +20,7 @@ from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel, OpenAIChatModel, AzureOpenAIChatModel
 from core.helpers import DialogSession
 from core.PersuadeePlanner import PersuadeeLLMPlanner
+from core.PersuaderPlanner import PersuaderLLMPlanner
 from utils.utils import (
 	seed_with_p4g_anchor,
 	set_determinitic_seed,
@@ -87,7 +87,7 @@ def _select_persuader_backbone(args, default_backbone):
 
 def _build_agents_and_game(args):
 
-	backbone_model, SysModel, UsrModel, SysPlanner = create_factor_llm(args)
+	backbone_model, SysModel, UsrModel, _ = create_factor_llm(args)
 
 	ontology = PersuasionGame.get_game_ontology()
 	sys_das = ontology["system"]["dialog_acts"]
@@ -125,20 +125,11 @@ def _build_agents_and_game(args):
 	)
 
 	# Planner (policy) for Persuader uses an LLM-only classifier over dialog acts.
-	# planner = PersuaderLLMPlanner(
-	# 	dialog_acts=sys_das,
-	# 	generation_model=persuader_backbone,
-	# 	max_hist_num_turns=2,
-	# 	seed=args.seed,
-	# )
-
-	planner = SysPlanner(
+	planner = PersuaderLLMPlanner(
 		dialog_acts=sys_das,
-		max_hist_num_turns=2,
-		user_dialog_acts=usr_das,
-		user_max_hist_num_turns=2,
 		generation_model=persuader_backbone,
-		conv_examples=[exp_dialog],
+		max_hist_num_turns=2,
+		seed=args.seed,
 	)
 
 	persuadee_planner = PersuadeeLLMPlanner(
@@ -197,22 +188,15 @@ def simulate_dialog(
 		if final_outcome != 0.0:
 			break
 
-		valid_moves = planner.get_valid_moves(state)
-		action_prob, _ = planner.predict(state)
-		action_prob = np.asarray(action_prob, dtype=np.float64)
-		valid_moves = np.asarray(valid_moves, dtype=np.float64)
-		action_prob *= valid_moves
-
-		if np.sum(action_prob) <= 0.0:
-			valid_indices = np.flatnonzero(valid_moves)
-			if valid_indices.size == 0:
-				logger.debug("No valid moves available for dialog %s; terminating early.", dialog_id or "N/A")
-				break
-			best_action = int(np.random.choice(valid_indices))
-		else:
-			action_prob /= action_prob.sum()
-			best_action = int(np.random.choice(len(action_prob), p=action_prob))
-		sys_da = game.system_agent.dialog_acts[best_action]
+		try:
+			selected_da = planner.select_action(state)
+		except Exception as exc:
+			logger.debug("Persuader planner failed to select action: %s", exc)
+			selected_da = None
+		if not selected_da or selected_da not in game.system_agent.dialog_acts:
+			selected_da = game.system_agent.dialog_acts[0]
+		best_action = game.system_agent.dialog_acts.index(selected_da)
+		sys_da = selected_da
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
 		state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
 

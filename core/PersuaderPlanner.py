@@ -60,64 +60,73 @@ class PersuaderLLMPlanner(DialogPlanner):
 		return int(self.rng.choice(valid_indices))
 
 	def _build_prompt(self, state: DialogSession) -> str:
-		history = state.to_string_rep(
-			keep_sys_da=False,
-			keep_user_da=False,
-			max_turn_to_display=self.max_hist_num_turns,
-		)
-		act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
-		instruction = (
-			"You are the Persuader in a donation conversation.\n"
-			"Pick the next dialog act that advances the persuasion.\n"
-			f"Available dialog acts: {act_list}.\n"
-			"Respond with one label in brackets, e.g., [credibility appeal]."
-		)
-		segments: List[str] = []
-		if history:
-			segments.append(f"Conversation so far:\n{history}")
-		segments.append(instruction)
-		body = "\n\n".join(segments)
-		return f"{body}\n\nNext dialog act:"
+		if len(state) == 0:
+			context = "Persuadee: Hello!"
+		else:
+			sys_utts: List[str] = []
+			for role, _da, utt in reversed(state):
+				if role == PersuasionGame.USR:
+					sys_utts.append(f"Persuadee: {utt}")
+					if len(sys_utts) >= self.max_hist_num_turns:
+						break
+			if not sys_utts:
+				sys_utts = ["Persuadee: Hello!"]
+			context = "\n".join(reversed(sys_utts))
 
-	def get_valid_moves(self, state: DialogSession) -> np.ndarray:
-		if len(state) < 1:
-			return np.array(
-				[1 if da == PersuasionGame.S_Greeting else 0 for da in self.dialog_acts],
-				dtype=np.int32,
-			)
-		return np.ones(len(self.dialog_acts), dtype=np.int32)
+		act_definitions = "\n".join(
+			f"[{da}] Describe briefly how this act advances persuasion."
+			for da in self.dialog_acts
+		)
+		options = " ".join(f"[{da}]" for da in self.dialog_acts)
+		guidelines = "\n".join(
+			[
+				"- Pick the single dialog act that best advances the persuasion objective.",
+				"- Respond with only one label in brackets, e.g., [credibility appeal].",
+			]
+		)
+		return "\n\n".join(
+			[
+				"The conversation context:",
+				context,
+				"Dialog act options:",
+				act_definitions,
+				"Guidelines:",
+				guidelines,
+				f"Available labels: {options}",
+				"Chosen label:",
+			]
+		)
 
-	def predict(self, state: DialogSession) -> "tuple[np.ndarray, float]":
+	def select_action(self, state: DialogSession) -> str:
+		# Expect that the buyer has just spoken; otherwise fall back.
 		valid_mask = self.get_valid_moves(state)
-		prompt = self._build_prompt(state)
+		if len(state) == 0 or state[-1][0] != PersuasionGame.USR:
+			return self.dialog_acts[self._fallback_index(valid_mask)]
 
-		counts = np.zeros(len(self.dialog_acts), dtype=np.float64)
 		try:
+			prompt = self._build_prompt(state)
 			data = self.model.generate(prompt, **self.selection_args)
-		except Exception as exc:  # pragma: no cover - fallback to heuristic choice
-			logger.debug("PersuaderLLMPlanner generation failed: %s", exc)
-			idx = self._fallback_index(valid_mask)
-			counts[idx] = 1.0
-			return counts, 0.0
-
-		for item in data or []:
-			resp = ""
+			resp = None
 			try:
-				resp = self.model._cleaned_resp([item], prompt)[0]
+				resp = self.model._cleaned_resp(data, prompt)[0]
 			except Exception:
-				resp = item.get("generated_text", "")
-			da = self._normalize_da(resp)
-			if da:
-				idx = self.dialog_acts.index(da)
+				resp = data[0].get("generated_text", "").strip() if data else ""
+			normalized = self._normalize_da(resp)
+			if not normalized and resp:
+				start = resp.find("[")
+				end = resp.find("]")
+				if start != -1 and end != -1 and end > start + 1:
+					br = resp[start + 1 : end].strip()
+					normalized = self._normalize_da(br)
+			if normalized and normalized in self.dialog_acts:
+				idx = self.dialog_acts.index(normalized)
 				if valid_mask[idx]:
-					counts[idx] += 1.0
+					return normalized
+			logger.debug("PersuaderLLMPlanner could not normalize DA from: %s", resp)
+		except Exception as exc:  # pragma: no cover
+			logger.debug("PersuaderLLMPlanner failed to select action: %s", exc)
 
-		if counts.sum() == 0.0:
-			idx = self._fallback_index(valid_mask)
-			counts[idx] = 1.0
-
-		prob = counts / counts.sum()
-		return prob, 0.0
+		return self.dialog_acts[self._fallback_index(valid_mask)]
 
 
 __all__ = ["PersuaderLLMPlanner"]
