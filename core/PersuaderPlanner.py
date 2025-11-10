@@ -4,7 +4,7 @@ from typing import List, Optional
 
 import numpy as np
 
-from core.P4GSystemPlanner import DialogPlanner
+
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel
 from core.game import PersuasionGame
@@ -12,7 +12,7 @@ from core.game import PersuasionGame
 logger = logging.getLogger(__name__)
 
 
-class PersuaderLLMPlanner(DialogPlanner):
+class PersuaderLLMPlanner:
 	"""
 	Simple LLM-backed planner for the Persuader.
 
