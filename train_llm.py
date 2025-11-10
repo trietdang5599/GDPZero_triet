@@ -72,9 +72,9 @@ def configure_gc_wrapper(module, use_reentrant: bool):
 #region Runtime setup (rank, TF32, etc.)
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
 torch.cuda.set_device(local_rank)
-print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
-print("CUDA_VISIBLE_DEVICES=", os.getenv("CUDA_VISIBLE_DEVICES"))
-print("cuda_count=", torch.cuda.device_count())
+# print("LOCAL_RANK=", os.getenv("LOCAL_RANK"))
+# print("CUDA_VISIBLE_DEVICES=", os.getenv("CUDA_VISIBLE_DEVICES"))
+# print("cuda_count=", torch.cuda.device_count())
 try:
     torch.set_float32_matmul_precision("high")
 except AttributeError:
@@ -124,7 +124,7 @@ def build_quantization_config(args) -> Optional["BitsAndBytesConfig"]:
 
 def load_causal_model(model_name: str, args, tokenizer=None):
     """Load the causal LM with optional quantization, precision, and device mapping."""
-    print("==== Model_name or local_path: ", model_name, " ========")
+    # print("==== Model_name or local_path: ", model_name, " ========")
     quant_config = build_quantization_config(args)
     torch_dtype = resolve_torch_dtype(args)
     load_kwargs: Dict[str, Any] = {}
