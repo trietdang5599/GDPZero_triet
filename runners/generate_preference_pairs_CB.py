@@ -37,6 +37,67 @@ DEFAULT_CB_DATASET = PROJECT_ROOT / "data" / "CraigslistBargains" / "train.json"
 
 _CB_DIALOG_CACHE: Dict[str, List[Tuple[str, dict]]] = {}
 _CB_ANCHOR_POINTERS: Dict[str, int] = {}
+CB_PERSONAS: List[Dict[str, str]] = [
+	{
+		"name": "Budget-Conscious Student",
+		"description": "A college student trying to furnish a small apartment without exceeding a tight monthly allowance.",
+		"negotiation_style": "Seeks big discounts, references limited cash, but stays polite.",
+	},
+	{
+		"name": "Collector",
+		"description": "A hobbyist who values condition details and authenticity before making a decision.",
+		"negotiation_style": "Asks many questions, willing to pay fair price if the item is pristine.",
+	},
+	{
+		"name": "Busy Parent",
+		"description": "Needs reliable gear for the family and prioritizes quick pickup logistics.",
+		"negotiation_style": "Negotiates moderately and values convenience or bundled accessories.",
+	},
+]
+
+
+class CBBuyerPlanner:
+	def __init__(self, dialog_acts: Sequence[str], rng: Optional[random.Random] = None):
+		self.dialog_acts = list(dialog_acts)
+		self.rng = rng or random.Random()
+
+	def select_action(self, state: DialogSession) -> str:
+		if len(state) == 0:
+			return NegotiationGame.B_GREETING if NegotiationGame.B_GREETING in self.dialog_acts else self.dialog_acts[0]
+		last_turn = state[-1]
+		last_role, last_da, _ = last_turn
+		if last_role != NegotiationGame.SYS and len(state) >= 2:
+			last_role, last_da, _ = state[-2]
+		if last_da in {
+			NegotiationGame.S_ACCEPT,
+			NegotiationGame.S_QUIT,
+			NegotiationGame.S_REJECT,
+		}:
+			return NegotiationGame.B_ACCEPT if last_da == NegotiationGame.S_ACCEPT else NegotiationGame.B_REJECT
+		if last_da in {NegotiationGame.S_INIT_PRICE, NegotiationGame.S_OFFER, NegotiationGame.S_COUNTER}:
+			return NegotiationGame.B_COUNTER if NegotiationGame.B_COUNTER in self.dialog_acts else NegotiationGame.B_INQUIRY
+		if last_da in {NegotiationGame.S_INSIST, NegotiationGame.S_VAGUE}:
+			return NegotiationGame.B_DISAGREE if NegotiationGame.B_DISAGREE in self.dialog_acts else NegotiationGame.B_COUNTER
+		if last_da == NegotiationGame.S_INFORM:
+			return NegotiationGame.B_INQUIRY
+		return self.rng.choice(self.dialog_acts)
+
+
+def classify_buyer_act(utterance: str, fallback: str) -> str:
+	text = (utterance or "").lower()
+	if any(keyword in text for keyword in ["deal", "i'll take", "sounds good", "accept"]):
+		return NegotiationGame.B_ACCEPT
+	if any(keyword in text for keyword in ["can't", "pass", "not interested", "reject"]):
+		return NegotiationGame.B_REJECT
+	if any(keyword in text for keyword in ["too high", "lower", "any chance", "budget", "counter"]):
+		return NegotiationGame.B_COUNTER
+	if any(keyword in text for keyword in ["question", "condition", "how old", "still available"]):
+		return NegotiationGame.B_INQUIRY
+	if any(keyword in text for keyword in ["thank", "hello", "hi"]):
+		return NegotiationGame.B_GREETING
+	if any(keyword in text for keyword in ["firm", "hard to justify", "hmm", "maybe"]):
+		return NegotiationGame.B_DISAGREE
+	return fallback
 
 
 def _infer_cb_role(personal_role: Optional[str]) -> Optional[str]:
@@ -251,6 +312,10 @@ def simulate_dialog(
 	dialog_id: Optional[str],
 	anchor_dataset: Optional[Path],
 	max_anchor_pairs: int,
+	persona_enabled: bool,
+	user_mode: str,
+	classify_user_act: bool,
+	buyer_planner: Optional[CBBuyerPlanner],
 ) -> tuple[dict, List[dict]]:
 	state = game.init_dialog()
 	conversation: List[dict] = []
@@ -267,6 +332,11 @@ def simulate_dialog(
 		)
 	active_dialog_id = getattr(state, "_anchor_dialog_id", None) or dialog_id
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
+
+	persona_profile: Optional[dict] = None
+	if persona_enabled and CB_PERSONAS:
+		persona_profile = random.choice(CB_PERSONAS)
+		setattr(state, "_persona_profile", persona_profile)
 
 	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)
@@ -287,7 +357,17 @@ def simulate_dialog(
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
 		state.add_single(game.SYS, sys_da, sys_utt)
 
-		user_da, user_utt = game.user_agent.get_utterance_w_da(state, action=None)
+		user_selected_act = None
+		if user_mode in {"planner", "hybrid"} and buyer_planner is not None:
+			user_selected_act = buyer_planner.select_action(state)
+		user_da, user_utt = game.user_agent.get_utterance_w_da(
+			state,
+			action=user_selected_act,
+		)
+		if user_mode == "planner" and user_selected_act:
+			user_da = user_selected_act
+		if classify_user_act or user_mode == "hybrid":
+			user_da = classify_buyer_act(user_utt, fallback=user_da)
 		state.add_single(game.USR, user_da, user_utt)
 
 		conversation.append(
@@ -332,6 +412,7 @@ def simulate_dialog(
 		"dialog_id": active_dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
+		"persona_profile": persona_profile,
 	}
 	if not collect_preferences or final_outcome != 1.0:
 		return sim_result, []
@@ -401,6 +482,23 @@ def parse_args() -> argparse.Namespace:
 		type=int,
 		default=6,
 		help="Maximum dialog turns before forcing termination.",
+	)
+	parser.add_argument(
+		"--user-mode",
+		type=str,
+		choices=["llm", "planner", "hybrid"],
+		default="llm",
+		help="Buyer strategy: 'llm' for free-form replies, 'planner' to follow heuristic acts, 'hybrid' to guide acts then classify.",
+	)
+	parser.add_argument(
+		"--classify-user-act",
+		action="store_true",
+		help="Enable lightweight intent classification of buyer utterances.",
+	)
+	parser.add_argument(
+		"--persona",
+		action="store_true",
+		help="Attach a random buyer persona profile for each simulation.",
 	)
 	parser.add_argument(
 		"--anchor-dataset",
@@ -478,6 +576,9 @@ def main() -> None:
 	backbone_model, planner, game, sys_das = _build_agents_and_game(args)
 	logger.info("System dialog acts: %s", sys_das)
 	logger.info("User dialog acts: %s", game.user_agent.dialog_acts)
+	buyer_planner = None
+	if args.user_mode in {"planner", "hybrid"}:
+		buyer_planner = CBBuyerPlanner(game.user_agent.dialog_acts, rng=random.Random(args.seed))
 
 	mcts_cfg = dotdict(
 		{
@@ -512,10 +613,22 @@ def main() -> None:
 			dialog_id=default_dialog_id,
 			anchor_dataset=anchor_dataset_path,
 			max_anchor_pairs=args.anchor_turns,
+			persona_enabled=args.persona,
+			user_mode=args.user_mode,
+			classify_user_act=args.classify_user_act,
+			buyer_planner=buyer_planner,
 		)
 		actual_dialog_id = sim_result.get("dialog_id") or default_dialog_id
 		logger.info("=== Simulation %d (%s) ===", sim_id + 1, actual_dialog_id)
 		results.append(sim_result)
+		persona_profile = sim_result.get("persona_profile")
+		if persona_profile:
+			logger.info(
+				"Persona summary | Name: %s | Style: %s",
+				persona_profile.get("name", "N/A"),
+				persona_profile.get("negotiation_style", "N/A"),
+			)
+			logger.info("Persona description: %s", persona_profile.get("description", ""))
 		for turn in sim_result["turns"]:
 			logger.info(
 				"[Turn %d][%s] SELLER(%s): %s",

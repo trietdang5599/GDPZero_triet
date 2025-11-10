@@ -92,7 +92,7 @@ class SellerModel(DialogModel):
 	def get_utterance(self, state: DialogSession, action: int) -> str:
 		dialog_act = self.dialog_acts[action]
 		prompt = self._build_prompt(state, dialog_act)
-		log_prompt("seller_model_prompt", prompt)
+		log_prompt(f"[SELLER_MODEL]\n{prompt}")
 		data = self.backbone_model.generate(prompt, **self.inference_args)
 		reply = self._clean_response(data)
 		logger.debug("Seller act=%s reply=%s", dialog_act, reply)
@@ -117,4 +117,3 @@ class SellerModel(DialogModel):
 
 
 __all__ = ["SellerModel"]
-

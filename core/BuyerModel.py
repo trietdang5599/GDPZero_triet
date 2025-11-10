@@ -62,16 +62,24 @@ Example negotiations:
 			for exp in self.conv_examples
 		)
 
-	def _build_prompt(self, state: DialogSession) -> str:
+	def _build_prompt(self, state: DialogSession, forced_act: Optional[str] = None) -> str:
 		history = state.to_string_rep(
 			keep_sys_da=True,
 			keep_user_da=True,
 			max_turn_to_display=self.max_hist_num_turns,
 		)
+		act_instruction = ""
+		if forced_act and forced_act in self.dialog_acts:
+			definition = self.da_definitions.get(forced_act, "")
+			act_instruction = (
+				f"You must respond with dialog act [{forced_act}]. {definition} "
+				"Keep the rest of the utterance natural."
+			).strip()
 		parts = [
 			self.task_prompt,
 			"Conversation so far:",
 			history or "Seller: [seller-intro] Hi there!\nBuyer: [buyer-greeting] Hey!",
+			act_instruction,
 			"Buyer:",
 		]
 		return "\n\n".join(part for part in parts if part).strip()
@@ -103,8 +111,8 @@ Example negotiations:
 		raise NotImplementedError("BuyerModel should not be used as the system agent.")
 
 	def get_utterance_w_da(self, state: DialogSession, action=None, **_kwargs) -> Tuple[str, str]:
-		prompt = self._build_prompt(state)
-		log_prompt("buyer_model_prompt", prompt)
+		prompt = self._build_prompt(state, forced_act=action)
+		log_prompt(f"[BUYER_MODEL]\n{prompt}")
 		data = self.backbone_model.generate(prompt, **self.inference_args)
 		da, utt = self._clean_response(data)
 		logger.debug("Buyer responded with da=%s text=%s", da, utt)
