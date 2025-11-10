@@ -5,23 +5,11 @@ from typing import List, Tuple
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel
 from core.game import PersuasionGame
-from abc import ABC, abstractmethod
+from core.dialog_planner import DialogPlanner
 # from collections import Counter
 
 
 logger = logging.getLogger(__name__)
-
-
-class DialogPlanner(ABC):
-	@abstractmethod
-	def get_valid_moves(self, state):
-		# 1 if the i-th dialog act is valid, 0 otherwise
-		pass
-
-	@abstractmethod
-	def predict(self, state) -> "Tuple[np.ndarray, float]":
-		# returns a prob and value
-		pass
 
 
 class P4GSystemPlanner(DialogPlanner):
@@ -396,7 +384,6 @@ class P4GChatSystemPlanner(P4GSystemPlanner):
 		return float(v)
 
 __all__ = [
-	"DialogPlanner",
 	"P4GSystemPlanner",
 	"P4GChatSystemPlanner",
 ]

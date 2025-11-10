@@ -11,18 +11,24 @@ Existing code that imports from `core.players` will continue to work because thi
 module re-exports the public classes.
 """
 
-from core.P4GSystemPlanner import DialogPlanner, P4GSystemPlanner, P4GChatSystemPlanner
+from core.dialog_planner import DialogPlanner
+from core.P4GSystemPlanner import P4GSystemPlanner, P4GChatSystemPlanner
 from core.PersuaderModel import PersuaderModel, PersuaderChatModel
 from core.PersuadeeModel import PersuadeeModel, PersuadeeChatModel
+from core.SellerModel import SellerModel
+from core.BuyerModel import BuyerModel
+from core.CBSystemPlanner import CBSystemPlanner
 
 
 __all__ = [
 	"DialogPlanner",
 	"P4GSystemPlanner",
 	"P4GChatSystemPlanner",
+	"CBSystemPlanner",
 	"PersuaderModel",
 	"PersuaderChatModel",
 	"PersuadeeModel",
 	"PersuadeeChatModel",
+	"SellerModel",
+	"BuyerModel",
 ]
-

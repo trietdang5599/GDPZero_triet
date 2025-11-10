@@ -157,3 +157,113 @@ class PersuasionGame(DialogGame):
 
 class EmotionalSupportGame(PersuasionGame):
 	pass
+
+
+class NegotiationGame(DialogGame):
+	SYS = "Seller"
+	USR = "Buyer"
+
+	S_INTRO = "seller-intro"
+	S_INIT_PRICE = "seller-init-price"
+	S_INFORM = "seller-inform"
+	S_OFFER = "seller-offer"
+	S_COUNTER = "seller-counter-price"
+	S_VAGUE = "seller-vague-price"
+	S_INSIST = "seller-insist"
+	S_ACCEPT = "seller-accept"
+	S_REJECT = "seller-reject"
+	S_QUIT = "seller-quit"
+	S_OTHER = "seller-other"
+
+	B_GREETING = "buyer-greeting"
+	B_INQUIRY = "buyer-inquiry"
+	B_COUNTER = "buyer-counter-price"
+	B_OFFER = "buyer-offer"
+	B_ACCEPT = "buyer-accept"
+	B_REJECT = "buyer-reject"
+	B_QUIT = "buyer-quit"
+	B_DISAGREE = "buyer-disagree"
+	B_AGREE = "buyer-agree"
+	B_OTHER = "buyer-other"
+
+	def __init__(self, system_agent: DialogModel, user_agent: DialogModel, max_conv_turns: int = 20):
+		super().__init__(NegotiationGame.SYS, system_agent, NegotiationGame.USR, user_agent)
+		self.max_conv_turns = max_conv_turns
+
+	@staticmethod
+	def get_game_ontology() -> dict:
+		return {
+			"system": {"dialog_acts": [
+				NegotiationGame.S_INTRO,
+				NegotiationGame.S_INIT_PRICE,
+				NegotiationGame.S_INFORM,
+				NegotiationGame.S_OFFER,
+				NegotiationGame.S_COUNTER,
+				NegotiationGame.S_VAGUE,
+				NegotiationGame.S_INSIST,
+				NegotiationGame.S_ACCEPT,
+				NegotiationGame.S_REJECT,
+				NegotiationGame.S_QUIT,
+				NegotiationGame.S_OTHER,
+			]},
+			"user": {"dialog_acts": [
+				NegotiationGame.B_GREETING,
+				NegotiationGame.B_INQUIRY,
+				NegotiationGame.B_COUNTER,
+				NegotiationGame.B_OFFER,
+				NegotiationGame.B_ACCEPT,
+				NegotiationGame.B_REJECT,
+				NegotiationGame.B_QUIT,
+				NegotiationGame.B_DISAGREE,
+				NegotiationGame.B_AGREE,
+				NegotiationGame.B_OTHER,
+			]},
+		}
+
+	def get_dialog_ended(self, state: DialogSession) -> float:
+		for role, da, _utt in state:
+			if role == NegotiationGame.USR and da == NegotiationGame.B_ACCEPT:
+				return 1.0
+			if da in {
+				NegotiationGame.B_REJECT,
+				NegotiationGame.B_QUIT,
+				NegotiationGame.S_REJECT,
+				NegotiationGame.S_QUIT,
+			}:
+				return -1.0
+		if len(state) >= self.max_conv_turns:
+			return -1.0
+		return 0.0
+
+	@staticmethod
+	def map_craigslist_intent(intent: str, role: str) -> str:
+		intent_norm = (intent or "").strip().lower()
+		if role == NegotiationGame.SYS:
+			mapper = {
+				"intro": NegotiationGame.S_INTRO,
+				"init-price": NegotiationGame.S_INIT_PRICE,
+				"inform": NegotiationGame.S_INFORM,
+				"offer": NegotiationGame.S_OFFER,
+				"counter-price": NegotiationGame.S_COUNTER,
+				"vague-price": NegotiationGame.S_VAGUE,
+				"insist": NegotiationGame.S_INSIST,
+				"accept": NegotiationGame.S_ACCEPT,
+				"agree": NegotiationGame.S_ACCEPT,
+				"reject": NegotiationGame.S_REJECT,
+				"quit": NegotiationGame.S_QUIT,
+				"disagree": NegotiationGame.S_REJECT,
+			}
+		else:
+			mapper = {
+				"intro": NegotiationGame.B_GREETING,
+				"inquiry": NegotiationGame.B_INQUIRY,
+				"inform": NegotiationGame.B_AGREE,
+				"offer": NegotiationGame.B_OFFER,
+				"counter-price": NegotiationGame.B_COUNTER,
+				"accept": NegotiationGame.B_ACCEPT,
+				"agree": NegotiationGame.B_ACCEPT,
+				"reject": NegotiationGame.B_REJECT,
+				"quit": NegotiationGame.B_QUIT,
+				"disagree": NegotiationGame.B_DISAGREE,
+			}
+		return mapper.get(intent_norm, NegotiationGame.S_OTHER if role == NegotiationGame.SYS else NegotiationGame.B_OTHER)

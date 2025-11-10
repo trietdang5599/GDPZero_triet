@@ -5,7 +5,7 @@ import numpy as np
 
 from core.helpers import DialogSession
 from core.game import DialogGame
-from core.P4GSystemPlanner import DialogPlanner
+from core.dialog_planner import DialogPlanner
 from utils.utils import (
 	summarize_action_statistics,
 	get_preference_pair,
