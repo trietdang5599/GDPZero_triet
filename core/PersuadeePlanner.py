@@ -10,31 +10,6 @@ from utils.dialog_acts import USER_DIALOG_ACT_DEFINITIONS
 logger = logging.getLogger(__name__)
 
 
-class PersuadeeHeuristicPlanner:
-	def __init__(
-		self,
-			dialog_acts: List[str],
-			generation_model: GenerationModel,
-			max_hist_num_turns: int = 2,
-			donate_prob: float | None = None,
-			seed: int | None = None,
-	):
-		if generation_model is None:
-			raise ValueError("generation_model is required for context-aware persuadee planning.")
-		self.dialog_acts = dialog_acts
-		if donate_prob is not None:
-			logger.debug("donate_prob is deprecated and ignored. Persuadee now uses LLM-based planning.")
-		self._llm_planner = PersuadeeLLMPlanner(
-			dialog_acts=dialog_acts,
-			generation_model=generation_model,
-			max_hist_num_turns=max_hist_num_turns,
-			seed=seed,
-		)
-
-	def select_action(self, state: DialogSession) -> str:
-		return self._llm_planner.select_action(state)
-
-
 class PersuadeeLLMPlanner:
 	"""
 	Content-aware persuadee planner that infers the next user dialog act

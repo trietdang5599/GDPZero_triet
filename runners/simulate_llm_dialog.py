@@ -20,8 +20,7 @@ from core.game import PersuasionGame
 from core.model_factory import create_factor_llm
 from core.gen_models import LocalModel, OpenAIChatModel, AzureOpenAIChatModel
 from core.helpers import DialogSession
-from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
-from core.PersuaderPlanner import PersuaderLLMPlanner
+from core.PersuadeePlanner import PersuadeeLLMPlanner
 from utils.utils import (
 	seed_with_p4g_anchor,
 	set_determinitic_seed,
@@ -142,22 +141,12 @@ def _build_agents_and_game(args):
 		conv_examples=[exp_dialog],
 	)
 
-	planner_choice = getattr(args, "user_planner", "llm")
-	if planner_choice == "heuristic":
-		persuadee_planner = PersuadeeHeuristicPlanner(
-			dialog_acts=persuadee.dialog_acts,
-			generation_model=persuadee_backbone,
-			max_hist_num_turns=2,
-			donate_prob=getattr(args, "planner_donate_prob", None),
-			seed=args.seed,
-		)
-	else:
-		persuadee_planner = PersuadeeLLMPlanner(
-			dialog_acts=persuadee.dialog_acts,
-			generation_model=persuadee_backbone,
-			max_hist_num_turns=2,
-			seed=args.seed,
-		)
+	persuadee_planner = PersuadeeLLMPlanner(
+		dialog_acts=persuadee.dialog_acts,
+		generation_model=persuadee_backbone,
+		max_hist_num_turns=2,
+		seed=args.seed,
+	)
 
 	# Game
 	game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
@@ -169,7 +158,7 @@ def simulate_dialog(
 	planner,
 	max_turns: int,
 	classify_user_act: bool,
-	user_planner: PersuadeeLLMPlanner | PersuadeeHeuristicPlanner | None = None,
+	user_planner: PersuadeeLLMPlanner | None = None,
 	dialog_id: Optional[str] = None,
 	anchor_dataset: Optional[Path] = None,
 	persuadee_persona_enabled: bool = False,
@@ -270,12 +259,6 @@ def parse_args() -> argparse.Namespace:
 		description="Simulate a persuasion dialog where both agents are powered by LLMs."
 	)
 	parser.add_argument(
-		"--llm",
-		type=str,
-		default="qwen2.5-0.5b",
-		help="Backbone model identifier (same choices as runners/gdpzero).",
-	)
-	parser.add_argument(
 		"--gen-sentences",
 		type=int,
 		default=3,
@@ -342,19 +325,9 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum dialog turns before forcing termination.",
 	)
 	parser.add_argument(
-		"--user-planner",
-		type=str,
-		choices=["heuristic", "llm"],
-		default="llm",
-		help=(
-			"Choose the policy for persuadee dialog acts: 'llm' uses the context-aware LLM planner "
-			"(default) and 'heuristic' wraps legacy heuristic behavior."
-		),
-	)
-	parser.add_argument(
 		"--classify-user-act",
 		action="store_true",
-		help="Run an auxiliary classification step to assign persuadee dialog acts. D�ng prompt d? LLM ph�n lo?i h�nh d?ng c?a persuadee.",
+		help="Run an auxiliary classification step to assign persuadee dialog acts.",
 	)
 	parser.add_argument(
 		"--use-persona",
