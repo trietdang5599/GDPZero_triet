@@ -29,7 +29,7 @@ from utils.utils import (
 from utils.prompt_examples import EXP_DIALOG
 
 
-DEFAULT_ANCHOR_DATASET = PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train-65-180.jsonl"
+DEFAULT_ANCHOR_DATASET = PROJECT_ROOT / "data" / "p4g" / "300_dialog_turn_based-train.jsonl"
 
 
 logger = logging.getLogger(__name__)
