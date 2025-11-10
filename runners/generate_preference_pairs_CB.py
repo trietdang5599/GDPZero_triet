@@ -37,24 +37,6 @@ DEFAULT_CB_DATASET = PROJECT_ROOT / "data" / "CraigslistBargains" / "train.json"
 
 _CB_DIALOG_CACHE: Dict[str, List[Tuple[str, dict]]] = {}
 _CB_ANCHOR_POINTERS: Dict[str, int] = {}
-CB_PERSONAS: List[Dict[str, str]] = [
-	{
-		"name": "Budget-Conscious Student",
-		"description": "A college student trying to furnish a small apartment without exceeding a tight monthly allowance.",
-		"negotiation_style": "Seeks big discounts, references limited cash, but stays polite.",
-	},
-	{
-		"name": "Collector",
-		"description": "A hobbyist who values condition details and authenticity before making a decision.",
-		"negotiation_style": "Asks many questions, willing to pay fair price if the item is pristine.",
-	},
-	{
-		"name": "Busy Parent",
-		"description": "Needs reliable gear for the family and prioritizes quick pickup logistics.",
-		"negotiation_style": "Negotiates moderately and values convenience or bundled accessories.",
-	},
-]
-
 
 class CBBuyerPlanner:
 	def __init__(self, dialog_acts: Sequence[str], rng: Optional[random.Random] = None):
@@ -246,9 +228,12 @@ def seed_with_cb_anchor(
 					"anchor_dialog_id": dialog_id,
 				}
 			)
+			setattr(state, "_cb_scenario", record.get("scenario") or getattr(state, "_cb_scenario", None))
 			seeded += 1
 		if seeded > 0:
 			setattr(state, "_anchor_dialog_id", dialog_id)
+			setattr(state, "_last_cb_scenario", record.get("scenario"))
+			setattr(state, "_cb_scenario", record.get("scenario"))
 			_CB_ANCHOR_POINTERS[key] = (dialog_idx + 1) % total
 			return seeded
 
@@ -334,9 +319,10 @@ def simulate_dialog(
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
 	persona_profile: Optional[dict] = None
-	if persona_enabled and CB_PERSONAS:
-		persona_profile = random.choice(CB_PERSONAS)
-		setattr(state, "_persona_profile", persona_profile)
+	if persona_enabled:
+		get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
+		if callable(get_persona_fn):
+			persona_profile = get_persona_fn(state)
 
 	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)
@@ -408,13 +394,11 @@ def simulate_dialog(
 			break
 
 	final_outcome = game.get_dialog_ended(state)
-	transcript = state.to_string_rep(keep_sys_da=True, keep_user_da=True, max_turn_to_display=-1)
 	sim_result = {
 		"dialog_id": active_dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
-		"transcript": transcript,
 	}
 	if not collect_preferences or final_outcome != 1.0:
 		return sim_result, []
@@ -626,9 +610,9 @@ def main() -> None:
 		persona_profile = sim_result.get("persona_profile")
 		if persona_profile:
 			logger.info(
-				"Persona summary | Name: %s | Style: %s",
-				persona_profile.get("name", "N/A"),
-				persona_profile.get("negotiation_style", "N/A"),
+				"Persona summary | Big-Five: %s | Decision style: %s",
+				persona_profile.get("big_five", "N/A"),
+				persona_profile.get("decision_making_style", "N/A"),
 			)
 			logger.info("Persona description: %s", persona_profile.get("description", ""))
 		for turn in sim_result["turns"]:
@@ -647,9 +631,6 @@ def main() -> None:
 				turn["user_utterance"],
 			)
 		logger.info("Simulation outcome: %s", sim_result["outcome"])
-		transcript = sim_result.get("transcript")
-		if transcript:
-			logger.info("Dialog transcript:\n%s", transcript)
 
 		if preference_enabled and sim_result["outcome"] == 1.0 and pref_candidates:
 			for candidate in pref_candidates:

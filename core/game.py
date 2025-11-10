@@ -76,7 +76,13 @@ class PersuasionGame(DialogGame):
 	S_EmotionAppeal = "emotion appeal"
 	S_PropositionOfDonation = "proposition of donation"
 	S_LogicalAppeal = "logical appeal"
+	S_FootInDoor = "foot in the door"
+	S_SelfModeling = "self-modeling"
+	S_PersonalStory = "personal story"
+	S_DonationInformation = "donation information"
+	S_SourceRelatedInquiry = "source-related inquiry"
 	S_TaskRelatedInquiry = "task related inquiry"
+	S_PersonalRelatedInquiry = "personal-related inquiry"
 	S_Greeting = "greeting"
 	S_Other = "other"
 
@@ -99,7 +105,9 @@ class PersuasionGame(DialogGame):
 				"dialog_acts": [
 					PersuasionGame.S_Greeting, PersuasionGame.S_CredibilityAppeal, PersuasionGame.S_EmotionAppeal,
 					PersuasionGame.S_PropositionOfDonation, PersuasionGame.S_LogicalAppeal,
-					PersuasionGame.S_TaskRelatedInquiry,
+					PersuasionGame.S_FootInDoor, PersuasionGame.S_SelfModeling, PersuasionGame.S_PersonalStory,
+					PersuasionGame.S_DonationInformation, PersuasionGame.S_SourceRelatedInquiry,
+					PersuasionGame.S_TaskRelatedInquiry, PersuasionGame.S_PersonalRelatedInquiry,
 					PersuasionGame.S_Other
 				],
 			},
@@ -163,16 +171,17 @@ class NegotiationGame(DialogGame):
 	SYS = "Seller"
 	USR = "Buyer"
 
-	S_INTRO = "seller-intro"
-	S_INIT_PRICE = "seller-init-price"
-	S_INFORM = "seller-inform"
-	S_OFFER = "seller-offer"
-	S_COUNTER = "seller-counter-price"
-	S_VAGUE = "seller-vague-price"
-	S_INSIST = "seller-insist"
-	S_ACCEPT = "seller-accept"
-	S_REJECT = "seller-reject"
-	S_QUIT = "seller-quit"
+	S_GREET = "seller-greeting"
+	S_ASK = "seller-ask-question"
+	S_ANSWER = "seller-answer-question"
+	S_FIRST_PRICE = "seller-propose-first-price"
+	S_COUNTER_PRICE = "seller-counter-price"
+	S_COMPARATIVE = "seller-use-comparatives"
+	S_CONFIRM_QUESTION = "seller-confirm-information"
+	S_CONFIRM_YES = "seller-affirm-confirmation"
+	S_CONFIRM_NO = "seller-deny-confirmation"
+	S_ACCEPT = "seller-accept-proposal"
+	S_REJECT = "seller-reject-proposal"
 	S_OTHER = "seller-other"
 
 	B_GREETING = "buyer-greeting"
@@ -194,16 +203,17 @@ class NegotiationGame(DialogGame):
 	def get_game_ontology() -> dict:
 		return {
 			"system": {"dialog_acts": [
-				NegotiationGame.S_INTRO,
-				NegotiationGame.S_INIT_PRICE,
-				NegotiationGame.S_INFORM,
-				NegotiationGame.S_OFFER,
-				NegotiationGame.S_COUNTER,
-				NegotiationGame.S_VAGUE,
-				NegotiationGame.S_INSIST,
+				NegotiationGame.S_GREET,
+				NegotiationGame.S_ASK,
+				NegotiationGame.S_ANSWER,
+				NegotiationGame.S_FIRST_PRICE,
+				NegotiationGame.S_COUNTER_PRICE,
+				NegotiationGame.S_COMPARATIVE,
+				NegotiationGame.S_CONFIRM_QUESTION,
+				NegotiationGame.S_CONFIRM_YES,
+				NegotiationGame.S_CONFIRM_NO,
 				NegotiationGame.S_ACCEPT,
 				NegotiationGame.S_REJECT,
-				NegotiationGame.S_QUIT,
 				NegotiationGame.S_OTHER,
 			]},
 			"user": {"dialog_acts": [
@@ -240,18 +250,23 @@ class NegotiationGame(DialogGame):
 		intent_norm = (intent or "").strip().lower()
 		if role == NegotiationGame.SYS:
 			mapper = {
-				"intro": NegotiationGame.S_INTRO,
-				"init-price": NegotiationGame.S_INIT_PRICE,
-				"inform": NegotiationGame.S_INFORM,
-				"offer": NegotiationGame.S_OFFER,
-				"counter-price": NegotiationGame.S_COUNTER,
-				"vague-price": NegotiationGame.S_VAGUE,
-				"insist": NegotiationGame.S_INSIST,
-				"accept": NegotiationGame.S_ACCEPT,
-				"agree": NegotiationGame.S_ACCEPT,
+				"intro": NegotiationGame.S_GREET,
+				"greeting": NegotiationGame.S_GREET,
+				"inquiry": NegotiationGame.S_ASK,
+				"ask": NegotiationGame.S_ASK,
+				"inform": NegotiationGame.S_ANSWER,
+				"answer": NegotiationGame.S_ANSWER,
+				"init-price": NegotiationGame.S_FIRST_PRICE,
+				"offer": NegotiationGame.S_FIRST_PRICE,
+				"counter-price": NegotiationGame.S_COUNTER_PRICE,
+				"vague-price": NegotiationGame.S_COMPARATIVE,
+				"insist": NegotiationGame.S_COMPARATIVE,
+				"confirm": NegotiationGame.S_CONFIRM_QUESTION,
+				"accept": NegotiationGame.S_CONFIRM_YES,
+				"agree": NegotiationGame.S_CONFIRM_YES,
+				"quit": NegotiationGame.S_CONFIRM_NO,
+				"disagree": NegotiationGame.S_CONFIRM_NO,
 				"reject": NegotiationGame.S_REJECT,
-				"quit": NegotiationGame.S_QUIT,
-				"disagree": NegotiationGame.S_REJECT,
 			}
 		else:
 			mapper = {

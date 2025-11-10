@@ -1,5 +1,8 @@
+import json
 import logging
+import random
 import re
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.game import NegotiationGame
@@ -36,13 +39,14 @@ class BuyerModel(DialogModel):
 			da: BUYER_DIALOG_ACT_DEFINITIONS.get(da, "Respond politely.")
 			for da in dialog_acts
 		}
-		dialog_act_list = " ".join(f"[{da}]" for da in self.dialog_acts)
-		self.task_prompt = f"""
-You are the Buyer negotiating over a Craigslist listing. Act like a real person who cares about price, item condition, and logistics.
+		self.dialog_act_list = " ".join(f"[{da}]" for da in self.dialog_acts)
+		self.task_prompt_template = """
+Now enter the role-playing mode. In the following conversation, you will play as a buyer in a price bargaining game.
+You are the buyer who is trying to buy the {product} with the price of {price}. Product description: {description}
 Always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
 Keep utterances natural, reference prior turns when relevant, and avoid robotic phrasing.
 Example negotiations:
-{self._format_examples()}
+{examples}
 --- End of examples ---
 """.strip()
 
@@ -54,6 +58,7 @@ Example negotiations:
 			"return_full_text": False,
 		}
 		self.inference_args = {**default_args, **(inference_args or {})}
+		self.persona_profiles = self._load_persona_profiles()
 
 	def _format_examples(self) -> str:
 		if not self.conv_examples:
@@ -62,6 +67,78 @@ Example negotiations:
 			exp.to_string_rep(keep_sys_da=True, keep_user_da=True)
 			for exp in self.conv_examples
 		)
+
+	def _load_persona_profiles(self) -> List[dict]:
+		persona_path = Path(__file__).resolve().parents[1] / "outputs" / "bigfive_personas.jsonl"
+		if not persona_path.exists():
+			logger.warning("Persona profile file not found at %s; continuing without personas.", persona_path)
+			return []
+		profiles: List[dict] = []
+		try:
+			with persona_path.open("r", encoding="utf-8") as handle:
+				for line in handle:
+					line = line.strip()
+					if not line:
+						continue
+					try:
+						entry = json.loads(line)
+					except json.JSONDecodeError:
+						continue
+					description = (entry.get("description") or "").strip()
+					if not description:
+						continue
+					profiles.append(
+						{
+							"description": description,
+							"big_five": entry.get("big_five_personality", ""),
+							"decision_making_style": entry.get("decision_making_style", ""),
+						}
+					)
+		except Exception as exc:  # pragma: no cover
+			logger.warning("Unable to load persona profiles from %s: %s", persona_path, exc)
+		return profiles
+
+	def _get_persona_profile(self, state: DialogSession) -> Optional[dict]:
+		if not self.persona_profiles:
+			return None
+		profile = getattr(state, "_persona_profile", None)
+		if profile is None:
+			profile = random.choice(self.persona_profiles)
+			setattr(state, "_persona_profile", profile)
+		return profile
+
+	def _build_persona_context(self, persona_profile: Optional[dict]) -> str:
+		if not persona_profile:
+			return ""
+		lines = ["Persona background for this conversation:", persona_profile.get("description", "")]
+		if persona_profile.get("big_five"):
+			lines.append(f"Big-Five Personality: {persona_profile['big_five']}")
+		if persona_profile.get("decision_making_style"):
+			lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
+		return "\n".join(line for line in lines if line.strip()) + "\n"
+
+	def _resolve_item_context(self, state: DialogSession) -> tuple[str, str, str]:
+		scenario = getattr(state, "_cb_scenario", None)
+		if scenario is None and hasattr(state, "_anchor_dialog_id"):
+			scenario = getattr(state, "_last_cb_scenario", None)
+		if not scenario:
+			category = "the item"
+			price = "a reasonable price"
+			description = "No additional description was provided."
+			return category, price, description
+		item = (scenario.get("kbs") or [{}])[0].get("item", {})
+		category = str(item.get("Category") or "the item")
+		price_val = item.get("Price")
+		if price_val in (None, "", 0):
+			price = "a reasonable price"
+		else:
+			price = f"${price_val}"
+		desc_field = item.get("Description")
+		if isinstance(desc_field, list):
+			description = " ".join(str(x) for x in desc_field if x).strip() or "No additional description was provided."
+		else:
+			description = str(desc_field or "No additional description was provided.").strip()
+		return category, price, description
 
 	def _build_prompt(self, state: DialogSession, forced_act: Optional[str] = None) -> str:
 		history = state.to_string_rep(
@@ -76,8 +153,19 @@ Example negotiations:
 				f"You must respond with dialog act [{forced_act}]. {definition} "
 				"Keep the rest of the utterance natural."
 			).strip()
+		category, price, description = self._resolve_item_context(state)
+		persona_profile = getattr(state, "_persona_profile", None)
+		persona_context = self._build_persona_context(persona_profile)
+		task_prompt = self.task_prompt_template.format(
+			product=category,
+			price=price,
+			description=description,
+			dialog_act_list=self.dialog_act_list,
+			examples=self._format_examples(),
+		)
 		parts = [
-			self.task_prompt,
+			task_prompt,
+			persona_context,
 			"Conversation so far:",
 			history or "Seller: [seller-intro] Hi there!\nBuyer: [buyer-greeting] Hey!",
 			act_instruction,
