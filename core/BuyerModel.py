@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 RESP_PATTERN = re.compile(r"\s*\[([^\]]+)\]\s*(.*)", re.DOTALL)
+TAG_PREFIX = re.compile(r"^\s*\[[^\]]+\]\s*")
 
 
 class BuyerModel(DialogModel):
@@ -84,15 +85,23 @@ Example negotiations:
 		]
 		return "\n\n".join(part for part in parts if part).strip()
 
+	def _strip_tags(self, text: str) -> str:
+		while True:
+			match = TAG_PREFIX.match(text)
+			if not match:
+				break
+			text = text[match.end() :].lstrip()
+		return text
+
 	def _parse_da_and_text(self, raw_text: str) -> Tuple[str, str]:
 		match = RESP_PATTERN.match(raw_text or "")
 		if not match:
-			return NegotiationGame.B_OTHER, raw_text.strip() or "I'm still thinking."
+			return NegotiationGame.B_OTHER, self._strip_tags(raw_text.strip()) or "I'm still thinking."
 		da = match.group(1).strip()
 		utterance = match.group(2).strip()
 		if da not in self.dialog_acts:
 			da = NegotiationGame.B_OTHER
-		return da, utterance or "I'm still thinking."
+		return da, self._strip_tags(utterance) or "I'm still thinking."
 
 	def _clean_response(self, data) -> Tuple[str, str]:
 		for resp in data:

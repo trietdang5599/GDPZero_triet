@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Optional
 
 from core.game import NegotiationGame
@@ -9,6 +10,8 @@ from utils.utils import log_prompt
 
 
 logger = logging.getLogger(__name__)
+
+TAG_PREFIX = re.compile(r"^\s*\[[^\]]+\]\s*")
 
 
 class SellerModel(DialogModel):
@@ -79,6 +82,15 @@ class SellerModel(DialogModel):
 		]
 		return "\n\n".join(part for part in parts if part).strip()
 
+	def _strip_tags(self, text: str) -> str:
+		# remove leading [tag] artifacts the model might echo
+		while True:
+			match = TAG_PREFIX.match(text)
+			if not match:
+				break
+			text = text[match.end() :].lstrip()
+		return text
+
 	def _clean_response(self, data) -> str:
 		for resp in data:
 			text = (resp.get("generated_text") or "").strip()
@@ -86,7 +98,9 @@ class SellerModel(DialogModel):
 				continue
 			if text.lower().startswith(f"{NegotiationGame.SYS.lower()}:"):
 				text = text.split(":", 1)[1].strip()
-			return text
+			text = self._strip_tags(text)
+			if text:
+				return text
 		return "Let's keep the conversation moving."
 
 	def get_utterance(self, state: DialogSession, action: int) -> str:
