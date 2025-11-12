@@ -119,7 +119,7 @@ def _build_agents_and_game(args):
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=persuadee_backbone,
-		max_hist_num_turns=1,
+		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
 		inference_args={"max_new_tokens": 128, "temperature": 0.2, "repetition_penalty": 1.0, "return_full_text": False},
 	)
