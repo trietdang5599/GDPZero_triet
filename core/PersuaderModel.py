@@ -185,21 +185,22 @@ class PersuaderChatModel(PersuaderModel):
 		Role:
 		- You are the Persuader whose goal is to convince the Persuadee to donate to Save the Children.
 
+		Response Requirements:
+		- Always respond with one or more complete sentences that clearly advance the persuasion goal.
+		- Ensure every response sounds natural, logical, and contextually relevant.
+		- Do NOT produce sentences that are empty, generic, or near-duplicates of earlier utterances.
+
 		Guidelines:
 		1. Reference credible facts or impact statistics to build trust.
 		2. Ask questions to understand the Persuadee's concerns, values, or donation preferences.
 		3. Tailor appeals to the Persuadee's responses while staying polite, empathetic, and solution-focused.
-		4. Use natural, complete sentences that clearly advance the persuasion objective in every reply.
 
 		Example Conversation:
 		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
 			"New Conversation:\n"
-			"- You (the Persuader) are now speaking with another Persuadee.\n"
-			"- Always respond with one or more complete sentences that clearly advance the persuasion goal.\n"
-			"- Ensure every response sounds natural, logical, and contextually relevant.\n"
-			"- Do NOT produce sentences that are empty, generic, or near-duplicates of earlier utterances."
+			
 		)
 		self.prompt_examples = self.process_chat_exp()
 		return
