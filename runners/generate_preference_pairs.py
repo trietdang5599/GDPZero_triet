@@ -5,7 +5,7 @@ import logging
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import sys
 
@@ -18,7 +18,7 @@ from core.game import PersuasionGame
 from core.mcts import OpenLoopMCTS
 from core.model_factory import create_factor_llm
 from core.helpers import DialogSession
-from core.PersuadeePlanner import PersuadeeHeuristicPlanner, PersuadeeLLMPlanner
+from core.PersuadeePlanner import PersuadeeLLMPlanner
 from utils.utils import (
 	dotdict,
 	export_preference_pair,
@@ -68,9 +68,9 @@ def _build_agents_and_game(args):
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=backbone_model,
-		max_hist_num_turns=2,
+		max_hist_num_turns=3,
 		conv_examples=[exp_dialog],
-		inference_args={"max_new_tokens": 64, "temperature": 0.7},
+		inference_args={"max_new_tokens": 64, "temperature": 0.9, "do_sample": True, "return_full_text": False},
 	)
 
 	# Planner (policy & value/heuristic)
@@ -83,22 +83,13 @@ def _build_agents_and_game(args):
 		conv_examples=[exp_dialog],
 	)
 
-	persuadee_planner = None
-	if args.user_mode in {"planner", "hybrid"}:
-		if getattr(args, "user_planner", "heuristic") == "llm":
-			persuadee_planner = PersuadeeLLMPlanner(
-				dialog_acts=persuadee.dialog_acts,
-				generation_model=backbone_model,
-				max_hist_num_turns=2,
-				seed=args.seed,
-			)
-		else:
-			persuadee_planner = PersuadeeHeuristicPlanner(
-				dialog_acts=persuadee.dialog_acts,
-				generation_model=backbone_model,
-				max_hist_num_turns=2,
-				seed=args.seed,
-			)
+	persuadee_planner = PersuadeeLLMPlanner(
+		dialog_acts=persuadee.dialog_acts,
+		generation_model=backbone_model,
+		max_hist_num_turns=2,
+		seed=args.seed,
+	)
+
 
 	# Game
 	game = PersuasionGame(system_agent=persuader, user_agent=persuadee, max_conv_turns=args.max_turns)
@@ -106,18 +97,17 @@ def _build_agents_and_game(args):
 
 
 def simulate_dialog(
-    game: PersuasionGame,
-    planner,
-    mcts_cfg: dotdict,
-    num_mcts_sims: int,
-    max_turns: int,
-    user_mode: str,
-    classify_user_act: bool,
-    user_planner: PersuadeeHeuristicPlanner | None = None,
-    collect_preferences: bool = False,
-    dialog_id: Optional[str] = None,
-    persona_enabled: bool = False,
-    anchor_dataset: Optional[Path] = None,
+	game: PersuasionGame,
+	planner,
+	mcts_cfg: dotdict,
+	num_mcts_sims: int,
+	max_turns: int,
+	classify_user_act: bool,
+ 	user_planner: PersuadeeLLMPlanner | None = None,
+	collect_preferences: bool = False,
+	dialog_id: Optional[str] = None,
+	persona_enabled: bool = False,
+	anchor_dataset: Optional[Path] = None,
 ) -> tuple[dict, List[dict]]:
 	state = game.init_dialog()
 	conversation: List[dict] = []
@@ -131,29 +121,44 @@ def simulate_dialog(
 			game=game,
 			conversation=conversation,
 		)
+		for seeded_turn in conversation:
+			if "persona_hint" not in seeded_turn:
+				seeded_turn["persona_hint"] = None
 	active_dialog_id = getattr(state, "_anchor_dialog_id", None) or dialog_id
 	remaining_turns = max_turns if seeded_pairs == 0 else max(0, max_turns - seeded_pairs)
 
-	persona_profile: Optional[dict] = None
+	persona_pool: List[Dict[str, str]] = []
 	if persona_enabled:
-		get_persona_fn = getattr(game.user_agent, "_get_persona_profile", None)
-		if callable(get_persona_fn):
-			try:
-				persona_profile = get_persona_fn(state)
-			except TypeError:
-				persona_profile = None
-	if persona_enabled and persona_profile:
-		logger.info(
-			"Persona profile | Big-Five: %s | Decision-Making: %s",
-			persona_profile.get("big_five", "N/A"),
-			persona_profile.get("decision_making_style", "N/A"),
-		)
-		logger.info("Persona description: %s", persona_profile.get("description", ""))
+		persona_pool = getattr(game.user_agent, "persona_profiles", None) or []
+		if not persona_pool:
+			logger.warning("Persona mode requested but no persona profiles are available; disabling persona context.")
+			persona_enabled = False
+	persona_history: List[dict] = []
+	last_persona_profile: Optional[dict] = None
 
 	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)
 		if final_outcome != 0.0:
 			break
+
+		persona_hint: Optional[dict] = None
+		if persona_enabled and persona_pool:
+			turn_persona_profile = random.choice(persona_pool)
+			setattr(state, "_persona_profile", turn_persona_profile)
+			last_persona_profile = turn_persona_profile
+			persona_hint = {
+				"personality": turn_persona_profile.get("big_five", ""),
+				"decision_making_style": turn_persona_profile.get("decision_making_style", ""),
+			}
+			persona_history.append(
+				{
+					"turn": len(conversation),
+					"description": turn_persona_profile.get("description", ""),
+					**persona_hint,
+				}
+			)
+		elif persona_enabled and hasattr(state, "_persona_profile"):
+			setattr(state, "_persona_profile", None)
 
 		dialog_planner = OpenLoopMCTS(game, planner, mcts_cfg)
 		for _ in range(num_mcts_sims):
@@ -169,17 +174,14 @@ def simulate_dialog(
 		sys_utt = game.system_agent.get_utterance(state.copy(), best_action)
 		state.add_single(PersuasionGame.SYS, sys_da, sys_utt)
 
-		user_selected_act = None
-		if user_mode in {"planner", "hybrid"} and user_planner is not None:
-			user_selected_act = user_planner.select_action(state)
+		user_selected_act = user_planner.select_action(state) if user_planner is not None else None
 
 		user_da, user_utt = game.user_agent.get_utterance_w_da(
 			state,
 			action=user_selected_act,
-			classify=classify_user_act or user_mode == "hybrid",
+			classify=classify_user_act,
 		)
-		if user_mode in {"planner", "hybrid"} and user_selected_act and user_da == PersuasionGame.U_Neutral:
-			user_da = user_selected_act
+
 		state.add_single(PersuasionGame.USR, user_da, user_utt)
 
 		conversation.append(
@@ -193,6 +195,7 @@ def simulate_dialog(
 				"user_utterance": user_utt,
 				"turn_type": "simulated",
 				"anchor_dialog_id": None,
+				"persona_hint": persona_hint,
 			}
 		)
 
@@ -213,6 +216,7 @@ def simulate_dialog(
 						"preference_pair": preference_pair,
 						"dialog_turn_id": f"{active_dialog_id}_turn{len(conversation) - 1}" if active_dialog_id else None,
 						"anchor_dialog_id": anchor_dialog_id,
+						"persona_hint": persona_hint,
 					}
 				)
 
@@ -224,7 +228,8 @@ def simulate_dialog(
 		"dialog_id": active_dialog_id,
 		"turns": conversation,
 		"outcome": final_outcome,
-		"persona_profile": persona_profile,
+		"persona_profile": last_persona_profile,
+		"persona_history": persona_history,
 	}
 	if not collect_preferences or final_outcome != 1.0:
 		return sim_result, []
@@ -238,9 +243,9 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--llm",
 		type=str,
-		choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "claude-haiku-3.5", "claude-3-5-haiku-20241022"],
+		choices=["code-davinci-002", "gpt-3.5-turbo", "chatgpt", "claude-haiku-3.5", "claude-3-5-haiku-20241022", "gpt2", "local"],
 		default="gpt-3.5-turbo",
-		help="Backbone model identifier (API-backed models only).",
+		help="Backbone model identifier (API-backed models + local/gpt2).",
 	)
 	parser.add_argument(
 		"--gen-sentences",
@@ -253,6 +258,23 @@ def parse_args() -> argparse.Namespace:
 		type=int,
 		default=5,
 		help="Number of simulations to run.",
+	)
+	parser.add_argument(
+		"--local-model-path",
+		type=str,
+		default="",
+		help="Path to a local HF model when using --llm local/gpt2.",
+	)
+	parser.add_argument(
+		"--local-base-model",
+		type=str,
+		default="",
+		help="Optional base model identifier when loading adapters via --local-model-path.",
+	)
+	parser.add_argument(
+		"--local-trust-remote-code",
+		action="store_true",
+		help="Allow executing remote code when loading local HF model weights.",
 	)
 	parser.add_argument(
 		"--num-mcts-sims",
@@ -277,23 +299,6 @@ def parse_args() -> argparse.Namespace:
 		type=int,
 		default=5,
 		help="Maximum dialog turns before forcing termination.",
-	)
-	parser.add_argument(
-		"--user-mode",
-		type=str,
-		choices=["llm", "planner", "hybrid"],
-		default="llm",
-		help="Strategy for Persuadee dialog acts: 'llm' for free-form, 'planner' for heuristic acts, 'hybrid' for planner hint plus classification.",
-	)
-	parser.add_argument(
-		"--user-planner",
-		type=str,
-		choices=["heuristic", "llm"],
-		default="heuristic",
-		help=(
-			"When --user-mode is 'planner' or 'hybrid': choose 'heuristic' (alias for the context-aware LLM "
-			"planner with default settings) or 'llm' (explicit context-aware LLM planner)."
-		),
 	)
 	parser.add_argument(
 		"--classify-user-act",
@@ -419,9 +424,7 @@ def main() -> None:
 			mcts_cfg,
 			args.num_mcts_sims,
 			args.max_turns,
-			user_mode=args.user_mode,
 			classify_user_act=args.classify_user_act,
-			user_planner=persuadee_planner,
 			collect_preferences=preference_enabled,
 			dialog_id=default_dialog_id,
 			persona_enabled=args.persona or args.persuader_use_persona,
@@ -468,6 +471,7 @@ def main() -> None:
 					preference_pair=candidate["preference_pair"],
 					system_role=game.SYS,
 					output_path=preference_output_path,
+					persona_hint=candidate.get("persona_hint"),
 				)
 				total_preference_pairs += 1
 			successful_preference_dialogs += 1

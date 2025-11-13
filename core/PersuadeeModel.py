@@ -42,7 +42,7 @@ class PersuadeeModel(DialogModel):
 
 		Guidelines:
 		1. Evaluate each request objectively and ask for clarification when details are unclear.
-		2. Weigh the Persuader’s arguments against your personal values, priorities, and budget.
+		2. Think about how the Persuader’s message resonates with your values and priorities before deciding what feels right for you.
 		3. Respond politely, using complete sentences that add substance to the conversation (never empty or meaningless).
 		4. Always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
 		5. Choose the dialog act that best reflects your genuine reaction; take action `[donate]` only when sufficiently convinced.
@@ -50,7 +50,7 @@ class PersuadeeModel(DialogModel):
 		Example Conversation:
 		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		{self.process_exp()}
-		The following is a new conversation between another Persuader and Persuadee.
+		\nThe following is a new conversation between another Persuader and Persuadee.
 		"""
 		self.task_prompt = self.task_prompt.replace("\t", "").strip()
 		self.inference_args = inference_args

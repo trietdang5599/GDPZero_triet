@@ -115,7 +115,6 @@ def get_preference_pair(
 	valid_moves: Iterable[int],
 	realizations_vs: Optional[Dict[str, Dict[str, float]]],
 ) -> Optional[Tuple[int, Tuple[str, float], Tuple[str, float]]]:
-	"""Return the preference pair (best/worst samples) for the next strategy."""
 	if not realizations_vs:
 		return None
 
@@ -151,6 +150,7 @@ def get_preference_pair(
 
 	best_pair = max(realization_dict.items(), key=lambda kv: kv[1])
 	worst_pair = min(realization_dict.items(), key=lambda kv: kv[1])
+
 	return target_idx, best_pair, worst_pair
 
 
@@ -408,11 +408,12 @@ def seed_with_p4g_anchor(
 
 
 def export_preference_pair(
-    dialog_id: str,
+	dialog_id: str,
 	state: DialogSession,
 	preference_pair: Optional[Tuple[int, Tuple[str, float], Tuple[str, float]]],
 	system_role: str,
 	output_path: Optional[Path] = None,
+	persona_hint: Optional[Dict[str, str]] = None,
 ) -> Optional[Dict[str, str]]:
 	"""Append the preference pair to preference_pair.json if it is new."""
 	if not preference_pair:
@@ -424,17 +425,17 @@ def export_preference_pair(
 
 	conversation = state.to_string_rep(keep_sys_da=False, keep_user_da=False)
 	prompt_header = "You are the Persuader. Generate the Persuader reply that advances persuasion in a way that persuades the Persuadee to donate to Save the Children."
-	persona_profile = getattr(state, "_persona_profile", None)
+	persona_lines: List[str] = []
+	if persona_hint:
+		if persona_hint.get("personality"):
+			persona_lines.append(f"Active cue: they show {persona_hint['personality']} traits.")
+		if persona_hint.get("decision_making_style"):
+			persona_lines.append(
+				f"Decision tendency this turn: they favor a {persona_hint['decision_making_style']} style."
+			)
 	persona_block = ""
-	if persona_profile:
-		persona_lines = []
-		if persona_profile.get("big_five"):
-			persona_lines.append(f"Persuadee Personality: {persona_profile['big_five']}")
-		if persona_profile.get("decision_making_style"):
-			persona_lines.append(f"Decision-Making Style: {persona_profile['decision_making_style']}")
-		if persona_lines:
-			persona_block = "Persona hints:\n" + "\n".join(persona_lines) + "\n"
-
+	if persona_lines:
+		persona_block = "Persona hints about the Persuadee:\n" + "\n".join(persona_lines) + "\n"
 	if conversation:
 		prompt = f"{prompt_header}\n{persona_block}Conversation so far:\n{conversation}\n{system_role}:"
 	else:
@@ -447,6 +448,8 @@ def export_preference_pair(
 		"chosen": best_pair[0],
 		"rejected": worst_pair[0],
 	}
+	if persona_hint:
+		preference_entry["persona_hint"] = persona_hint
 	anchor_dialog_id = getattr(state, "_anchor_dialog_id", None)
 	if anchor_dialog_id:
 		preference_entry["anchor_dialog_id"] = anchor_dialog_id
