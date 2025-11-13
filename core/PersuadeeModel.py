@@ -244,30 +244,11 @@ class PersuadeeChatModel(PersuadeeModel):
 			max_hist_num_turns=max_hist_num_turns
 		)
 		self.inference_args = inference_args
-		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
-		self.task_prompt = f"""
-		You are a persuadee. A Persuader is trying to persuade you to donate to a charity called Save the Children.
-		Approach the conversation with a cooperative, empathetic mindset: be receptive to well-reasoned points,
-		express appreciation for meaningful efforts, and stay polite even when uncertain.
-		Evaluate the donation request objectively—ask follow-up questions when information is missing, weigh the impact on your personal priorities,
-		and decide to donate only if you are genuinely convinced by the evidence.
-		You must always answer in the format `[dialog_act] utterance`, choosing `dialog_act` from: {dialog_act_list}.
-		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
-		{dialog_act_list}
-		\nThe following is an example conversation between a Persuader and some Persuadee.
-		""".replace("\t", "").strip()
-		self.new_task_prompt = (
-			"The following is a new conversation between a Persuader and a Persuadee (you). "
-			"Maintain a helpful, good-faith tone while evaluating each point on its merits. "
-			"Ask follow-up questions when necessary, balance the request against your own circumstances, "
-			"and choose `[donate]` only if you feel sufficiently convinced; it is acceptable to decline otherwise. "
-			"Remember to reply only in the format `[dialog_act] utterance`."
-		)
+		self.new_task_prompt = "The following is a new conversation between another Persuader and Persuadee."
 		self.heuristic_args: dict = {
 			"max_hist_num_turns": 2,
 			"example_pred_turn": [[0, 2, 3, 4]]
 		}
-		self.prompt_examples = self.process_chat_exp()
 		self.classifier_args = {
 			"max_new_tokens": 16,
 			"temperature": 0.0,
@@ -276,15 +257,6 @@ class PersuadeeChatModel(PersuadeeModel):
 		}
 		return
 	
-	def process_chat_exp(self):
-		prompt_exps = []
-		for exp in self.conv_examples:
-			prompt_exps += self.__proccess_chat_exp(exp)
-			prompt_exps.append({
-				"role":"system", "content": self.new_task_prompt
-			})
-		return prompt_exps[:-1]
-
 	def __proccess_chat_exp(self, exp:DialogSession, max_hist_num_turns: int = -1):
 		if len(exp) == 0:
 			return []
@@ -316,8 +288,6 @@ class PersuadeeChatModel(PersuadeeModel):
 		assert(state[-1][0] == PersuasionGame.SYS)  # next turn is user's turn
 		messages = [
 			{'role': 'system', 'content': self.task_prompt},
-			*self.prompt_examples,
-			{'role': 'system', 'content': self.new_task_prompt}
 		]
 		persona_profile = self._get_persona_profile(state)
 		persona_context = self._build_persona_context(persona_profile)
@@ -346,8 +316,6 @@ class PersuadeeChatModel(PersuadeeModel):
 		for idx, state in enumerate(states):
 			messages = [
 				{'role': 'system', 'content': self.task_prompt},
-				*self.prompt_examples,
-				{'role': 'system', 'content': self.new_task_prompt}
 			]
 			persona_profile = self._get_persona_profile(state)
 			persona_context = self._build_persona_context(persona_profile)
