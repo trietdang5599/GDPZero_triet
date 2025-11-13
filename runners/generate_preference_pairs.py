@@ -55,7 +55,7 @@ def _build_agents_and_game(args):
 	persuader = SysModel(
 		dialog_acts=sys_das,
 		backbone_model=backbone_model,
-		max_hist_num_turns=2,
+		max_hist_num_turns=3,
 		conv_examples=[exp_dialog],
 		inference_args={
 			"max_new_tokens": 128,
@@ -68,7 +68,7 @@ def _build_agents_and_game(args):
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=backbone_model,
-		max_hist_num_turns=3,
+		max_hist_num_turns=2,
 		conv_examples=[exp_dialog],
 		inference_args={"max_new_tokens": 64, "temperature": 0.9, "do_sample": True, "return_full_text": False},
 	)
