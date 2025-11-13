@@ -279,17 +279,23 @@ def parse_args() -> argparse.Namespace:
 		default=3,
 		help="Number of sentences for chat-based models (passed to OpenAI/Azure chat wrappers).",
 	)
-	parser.add_argument(
-		"--local-model-path",
-		type=str,
-		default="",
-		help="Path to local HF model when using --llm local/gpt2.",
-	)
-	parser.add_argument(
-		"--local-trust-remote-code",
-		action="store_true",
-		help="Allow executing remote code when loading local HF model.",
-	)
+	# parser.add_argument(
+	# 	"--local-model-path",
+	# 	type=str,
+	# 	default="",
+	# 	help="Path to local HF model when using --llm local/gpt2.",
+	# )
+	# parser.add_argument(
+	# 	"--local-base-model",
+	# 	type=str,
+	# 	default="",
+	# 	help="Optional base model identifier when loading a LoRA/adapter via --local-model-path.",
+	# )
+	# parser.add_argument(
+	# 	"--local-trust-remote-code",
+	# 	action="store_true",
+	# 	help="Allow executing remote code when loading local HF model.",
+	# )
 	parser.add_argument(
 		"--persuadee-model-name",
 		type=str,
@@ -384,7 +390,12 @@ def parse_args() -> argparse.Namespace:
 		default=DEFAULT_ANCHOR_DATASET,
 		help="Path to the dialog dataset used for seeding conversations (default: P4G test split).",
 	)
-	return parser.parse_args()
+	args = parser.parse_args()
+	# if not args.local_model_path and args.persuader_model_path:
+	# 	args.local_model_path = args.persuader_model_path
+	# if not args.local_base_model and args.persuader_base_model:
+	# 	args.local_base_model = args.persuader_base_model
+	return args
 
 
 def configure_logging(level: str) -> None:
