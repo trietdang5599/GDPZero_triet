@@ -113,8 +113,6 @@ def _build_agents_and_game(args):
 			"top_p": 0.8,
 			"do_sample": True,
 			"return_full_text": False,
-			"repetition_penalty": 1.08,     # 1.08–1.15
-    		"no_repeat_ngram_size": 3,
     		"stop_sequences": ["\nUser:", "\nPersuadee:"]
 		},
 		use_persona_context=getattr(args, "persuader_use_persona", False),
