@@ -113,13 +113,16 @@ def _build_agents_and_game(args):
 			"top_p": 0.8,
 			"do_sample": True,
 			"return_full_text": False,
+			"repetition_penalty": 1.08,     # 1.08–1.15
+    		"no_repeat_ngram_size": 3,
+    		"stop_sequences": ["\nUser:", "\nPersuadee:"]
 		},
 		use_persona_context=getattr(args, "persuader_use_persona", False),
 	)
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
 		backbone_model=persuadee_backbone,
-		max_hist_num_turns=1,
+		max_hist_num_turns=3,
 		conv_examples=[exp_dialog],
 		inference_args={"max_new_tokens": 128, "temperature": 1.1, "repetition_penalty": 1.0, "return_full_text": False},
 	)
