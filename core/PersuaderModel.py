@@ -178,18 +178,28 @@ class PersuaderChatModel(PersuaderModel):
 			**inference_args
 		}
 		self.task_prompt = """
-		Save the Children is head-quartered in London, and they work to help fight poverty around the world. Children need help in developing countries and war zones. Small donations like $1 or $2 go a long way to help.
-		You are Persuader who is trying to persuade the Persuadee to donate to a charity called Save the Children.\n
+		Context:
+		- Save the Children is headquartered in London and fights global child poverty, especially in developing countries and war zones.
+		- Small donations such as $1 or $2 can provide safety, education, nutrition, and emergency relief for vulnerable children.
+
+		Role:
+		- You are the Persuader whose goal is to convince the Persuadee to donate to Save the Children.
+
+		Guidelines:
+		1. Reference credible facts or impact statistics to build trust.
+		2. Ask questions to understand the Persuadee's concerns, values, or donation preferences.
+		3. Tailor appeals to the Persuadee's responses while staying polite, empathetic, and solution-focused.
+		4. Use natural, complete sentences that clearly advance the persuasion objective in every reply.
+
+		Example Conversation:
 		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		""".replace("\t", "").strip()
 		self.new_task_prompt = (
-			"The following is a new conversation between Persuader (you) and another Persuadee.\n"
-			"Always respond with one or more complete sentences that clearly advance the persuasion goal. "
-			"Your responses must sound natural, logical, and contextually relevant. "
-			"Do NOT produce sentences that are:\n"
-			"- Empty or incomplete\n" 
-			"- Meaningless or generic\n"
-			"- Repetitions or near-duplicates of previous utterances in the conversation\n"
+			"New Conversation:\n"
+			"- You (the Persuader) are now speaking with another Persuadee.\n"
+			"- Always respond with one or more complete sentences that clearly advance the persuasion goal.\n"
+			"- Ensure every response sounds natural, logical, and contextually relevant.\n"
+			"- Do NOT produce sentences that are empty, generic, or near-duplicates of earlier utterances."
 		)
 		self.prompt_examples = self.process_chat_exp()
 		return

@@ -33,14 +33,22 @@ class PersuadeeModel(DialogModel):
 		# prompts
 		dialog_act_list = " ".join([f"[{da}]" for da in self.dialog_acts])
 		self.task_prompt = f"""
-		You are the Persuadee in this dialog. The Persuader is trying to convince you to donate to Save the Children.
-		Consider the request objectively: ask for clarification whenever details are unclear, assess whether the reasons align with your values and budget,
-		and decide whether to donate only after you feel the Persuader has provided convincing evidence.
-		You must always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
-		The utterance portion must consist of one or more polite sentences (never empty or meaningless).
-		The Persuadee can choose amongst the following actions during a conversation to respond to the Persuader:
-		{dialog_act_list}
-		The following is an example conversation between a Persuader and a Persuadee about a charity called Save the Children.
+		Context:
+		- Save the Children is a global charity that provides safety, nutrition, education, and emergency relief for vulnerable children.
+		- Donations of any size (as little as $1 or $2) can meaningfully improve children’s lives in developing regions and crisis zones.
+
+		Role:
+		- You are the Persuadee. The Persuader is trying to convince you to donate to Save the Children.
+
+		Guidelines:
+		1. Evaluate each request objectively and ask for clarification when details are unclear.
+		2. Weigh the Persuader’s arguments against your personal values, priorities, and budget.
+		3. Respond politely, using complete sentences that add substance to the conversation (never empty or meaningless).
+		4. Always respond in the format `[dialog_act] utterance`, where `dialog_act` is one of: {dialog_act_list}.
+		5. Choose the dialog act that best reflects your genuine reaction; take action `[donate]` only when sufficiently convinced.
+
+		Example Conversation:
+		The following is an example conversation between a Persuader and a Persuadee about Save the Children.
 		{self.process_exp()}
 		The following is a new conversation between another Persuader and Persuadee.
 		"""
