@@ -277,7 +277,7 @@ def simulate_dialog(
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
-		"infer_persona_persuadee": infer_persona_persuadee,
+		# "infer_persona_persuadee": infer_persona_persuadee,
 	}
 	return sim_result
 
@@ -473,13 +473,13 @@ def main() -> None:
 				pp.get("decision_making_style", "N/A"),
 			)
 			logger.info("Persona description: %s", pp.get("description", ""))
-		infer_pp = sim_result.get("infer_persona_persuadee") or {}
-		if infer_pp:
-			logger.info(
-				"Persuader persona hints | Big-Five: %s | Decision-Making: %s",
-				infer_pp.get("big_five", "N/A"),
-				infer_pp.get("decision_making_style", "N/A"),
-			)
+		# infer_pp = sim_result.get("infer_persona_persuadee") or {}
+		# if infer_pp:
+		# 	logger.info(
+		# 		"Persuader persona hints | Big-Five: %s | Decision-Making: %s",
+		# 		infer_pp.get("big_five", "N/A"),
+		# 		infer_pp.get("decision_making_style", "N/A"),
+		# 	)
 		for turn in sim_result["turns"]:
 			logger.info(
 				"[Turn %d][%s] SYS(%s): %s",
