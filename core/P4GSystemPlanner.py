@@ -66,38 +66,50 @@ class P4GSystemPlanner(DialogPlanner):
 		return "\n".join(user_utts).strip()
 
 	def _build_persona_inference_prompt(self, state: DialogSession) -> str:
-		user_utts = [utt.strip() for role, _da, utt in state if role == PersuasionGame.USR and utt.strip()]
+		# Lấy tất cả phát ngôn của user (Persuadee)
+		user_utts = [
+			utt.strip()
+			for role, _da, utt in state
+			if role == PersuasionGame.USR and utt.strip()
+		]
 		if len(user_utts) < self._persona_min_user_turns:
 			return ""
+
+		# Lấy đoạn context gần nhất cho đủ thông tin
 		context = self._recent_dialog_context(state)
 		if not context:
 			return ""
+
 		instructions = (
-			"You are drafting persona hints for the Persuader.\n"
-			"Write two short lines.\n"
-			"Line 1 format: Active cue: they show <trait> traits.\n"
-			"Line 2 format: Decision tendency this turn: they favor a <style> style.\n"
-			"Use Big-Five traits (openness, conscientiousness, extraversion, agreeableness, neuroticism) "
-			"and decision styles (analytical, behavioral, conceptual, directive).\n"
-			"Base your answer only on the conversation."
+			"You are annotating persona hints for the Persuadee in a charity-donation dialog.\n\n"
+			"Goal:\n"
+			"Infer (1) the most salient Big-Five personality trait and\n"
+			"(2) the current decision-making style of the Persuadee, based only on the conversation so far.\n\n"
+			"Allowed labels:\n"
+			"- Big Five traits (exact strings): openness, conscientiousness, extraversion, agreeableness, neuroticism\n"
+			"- Decision styles (exact strings): analytical, behavioral, conceptual, directive\n\n"
+			"Rules:\n"
+			"- Use cues from what the Persuadee actually says in this conversation.\n"
+			"- Focus on the single most evident trait from this conversation; do not guess multiple traits.\n"
+			"- If cues are weak or ambiguous, choose the labels that best match their behavior, but avoid stereotypes.\n"
+			"- Base your answer only on the conversation; do not use outside knowledge.\n"
+			"- Do not explain your reasoning and do not add any extra text.\n\n"
+			"Output format:\n"
+			"Write exactly two lines:\n"
+			"Line 1: Active cue: they show <one Big Five trait> traits.\n"
+			"Line 2: Decision tendency this turn: they favor a <one decision style> style."
 		)
-		example = (
-			"Example persona hint:\n"
-			"Active cue: they show neuroticism traits.\n"
-			"Decision tendency this turn: they favor a analytical style."
-		)
+
 		return "\n\n".join(
 			[
 				"Conversation so far:",
 				context,
-				"Persona hints template:",
-				"Active cue: they show <trait> traits.\nDecision tendency this turn: they favor a <style> style.",
-				example,
 				"Instructions:",
 				instructions,
 				"Persona hints:",
 			]
 		).strip()
+
 
 	def _parse_persona_inference(self, resp: str) -> Optional[dict]:
 		text = (resp or "").strip()
