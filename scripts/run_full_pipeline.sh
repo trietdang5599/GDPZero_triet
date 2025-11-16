@@ -47,8 +47,8 @@ else
 fi
 
 echo "=== Step 2/3: Supervised fine-tuning ==="
-echo "SFT checkpoint directory: ${SFT_OUTPUT}" 
-MASTER_PORT="${MASTER_PORT}"\
+echo "SFT checkpoint directory: ${SFT_OUTPUT}"
+MASTER_PORT="${MASTER_PORT}" \
 OUTPUT_DIR="${SFT_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
 DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH}" \
@@ -59,8 +59,8 @@ bash "${SCRIPT_DIR}/run_sft.sh" "$@"
 [[ -d "${SFT_OUTPUT}" ]] || { echo "[error] SFT output directory missing at ${SFT_OUTPUT}" >&2; exit 1; }
 
 echo "=== Step 3/3: DPO fine-tuning ==="
-echo "DPO checkpoint directory: ${DPO_OUTPUT}" 
-MASTER_PORT="${MASTER_PORT}"\
+echo "DPO checkpoint directory: ${DPO_OUTPUT}"
+MASTER_PORT="${MASTER_PORT}" \
 OUTPUT_DIR="${DPO_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
 SFT_MODEL_PATH="${SFT_OUTPUT}" \
