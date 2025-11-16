@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
+MASTER_PORT="${MASTER_PORT:-4040}"
 MODEL_NAME="${MODEL_NAME:-meta-llama/Meta-Llama-3-8B-Instruct}"
 # Dataset presets (defaults to P4G unless overridden)
 USE_CB_DATASET="${USE_CB_DATASET:-0}"
@@ -48,6 +48,7 @@ fi
 
 echo "=== Step 2/3: Supervised fine-tuning ==="
 echo "SFT checkpoint directory: ${SFT_OUTPUT}"
+MASTER_PORT="${MASTER_PORT}"\
 OUTPUT_DIR="${SFT_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
 DATASET_TRAIN_PATH="${DATASET_TRAIN_PATH}" \
@@ -59,6 +60,7 @@ bash "${SCRIPT_DIR}/run_sft.sh" "$@"
 
 echo "=== Step 3/3: DPO fine-tuning ==="
 echo "DPO checkpoint directory: ${DPO_OUTPUT}"
+MASTER_PORT="${MASTER_PORT}"\
 OUTPUT_DIR="${DPO_OUTPUT}" \
 MODEL_NAME="${MODEL_NAME}" \
 SFT_MODEL_PATH="${SFT_OUTPUT}" \
