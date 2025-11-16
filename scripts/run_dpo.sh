@@ -58,10 +58,10 @@ accelerate launch \
   --model-name "${MODEL_NAME}" \
   --reference-model-name "${SFT_MODEL_PATH}" \
   --output-dir "${OUTPUT_DIR}" \
-  --batch-size "${BATCH_SIZE:-1}" \
+  --batch-size "${BATCH_SIZE:-2}" \
   --gradient-accumulation "${GRAD_ACCUM:-16}" \
-  --num-train-epochs "${NUM_EPOCHS:-3}" \
-  --learning-rate "${LEARNING_RATE:-5e-6}" \
+  --num-train-epochs "${NUM_EPOCHS:-2}" \
+  --learning-rate "${L  EARNING_RATE:-3e-6}" \
   --max-length "${MAX_LENGTH:-512}" \
   --dpo-beta "${DPO_BETA:-0.1}" \
   --gradient-checkpointing \

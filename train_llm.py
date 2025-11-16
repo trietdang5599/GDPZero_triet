@@ -600,7 +600,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate.")
     parser.add_argument("--num-train-epochs", type=float, default=3.0, help="Number of training epochs.")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay.")
-    parser.add_argument("--warmup-ratio", type=float, default=0.03, help="Linear warmup ratio.")
+    parser.add_argument("--warmup-ratio", type=float, default=0.05, help="Linear warmup ratio.")
     parser.add_argument("--validation-ratio", type=float, default=0.1, help="Fraction of samples reserved for validation.")
     parser.add_argument("--max-samples", type=int, default=0, help="Optional cap on total samples (0 = use all).")
     parser.add_argument("--num-negatives", type=int, default=1, help="Number of rejected completions to sample per positive example when synthesizing preference pairs.")
