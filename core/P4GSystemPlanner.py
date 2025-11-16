@@ -57,11 +57,13 @@ class P4GSystemPlanner(DialogPlanner):
 		return
 
 	def _recent_dialog_context(self, state: DialogSession) -> str:
-		return state.to_string_rep(
-			keep_sys_da=False,
-			keep_user_da=False,
-			max_turn_to_display=self._persona_hist_turns,
-		).strip()
+		user_utts: List[str] = []
+		for role, _da, utt in state:
+			if role == PersuasionGame.USR and utt.strip():
+				user_utts.append(f"{PersuasionGame.USR}: {utt.strip()}")
+		if self._persona_hist_turns > 0:
+			user_utts = user_utts[-self._persona_hist_turns :]
+		return "\n".join(user_utts).strip()
 
 	def _build_persona_inference_prompt(self, state: DialogSession) -> str:
 		user_utts = [utt.strip() for role, _da, utt in state if role == PersuasionGame.USR and utt.strip()]
