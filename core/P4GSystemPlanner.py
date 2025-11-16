@@ -49,6 +49,7 @@ class P4GSystemPlanner(DialogPlanner):
 		self.persona_infer_args = {
 			"max_new_tokens": 64,
 			"temperature": 0.2,
+			"top_p": 0.8,
 			"do_sample": False,
 			"return_full_text": False,
 		}
@@ -148,7 +149,11 @@ class P4GSystemPlanner(DialogPlanner):
 		if not prompt:
 			return None
 		try:
-			data = self.generation_model.generate(prompt, **self.persona_infer_args)
+			gen_args = dict(self.persona_infer_args)
+			if not gen_args.get("do_sample", False):
+				gen_args.pop("temperature", None)
+				gen_args.pop("top_p", None)
+			data = self.generation_model.generate(prompt, **gen_args)
 			resp = ""
 			if data:
 				raw_resp = data[0].get("generated_text", "")
