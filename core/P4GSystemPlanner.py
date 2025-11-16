@@ -132,7 +132,7 @@ class P4GSystemPlanner(DialogPlanner):
 
 	def infer_persona_profile(self, state: DialogSession) -> Optional[dict]:
 		prompt = self._build_persona_inference_prompt(state)
-		logger.info("prompt infer: %s", prompt)
+		# logger.info("prompt infer: %s", prompt)
 		if not prompt:
 			return None
 		try:

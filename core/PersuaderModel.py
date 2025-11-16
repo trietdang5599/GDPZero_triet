@@ -75,7 +75,7 @@ class PersuaderModel(DialogModel):
 			lines.append(f"Decision-Making Style: {decision_style}")
 		if not lines:
 			return ""
-		logger.info("Persuadee traits:\n" + "\n".join(lines))
+		# logger.info("Persuadee traits:\n" + "\n".join(lines))
 		return "Persuadee traits:\n" + "\n".join(lines)
 
 	def _build_prompt(self, state: DialogSession, da_prompt: str) -> str:
