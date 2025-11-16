@@ -28,8 +28,8 @@ LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q_proj,k_proj,v_proj,o_proj}"
 CHECKPOINT_REENTRANT="${CHECKPOINT_REENTRANT:-0}"
 
-mkdir -p "$(dirname "${OUTPUT_DIR}")"
-echo "DPO checkpoint directory: ${SFT_MODEL_PATH}"
+mkdir -p "${OUTPUT_DIR}"
+echo "DPO checkpoint directory: ${OUTPUT_DIR}"
 LORA_ARGS=()
 if [[ "${USE_LORA}" != "0" ]]; then
   LORA_ARGS=(
@@ -61,7 +61,7 @@ accelerate launch \
   --batch-size "${BATCH_SIZE:-2}" \
   --gradient-accumulation "${GRAD_ACCUM:-16}" \
   --num-train-epochs "${NUM_EPOCHS:-2}" \
-  --learning-rate "${L  EARNING_RATE:-3e-6}" \
+  --learning-rate "${LEARNING_RATE:-3e-6}" \
   --max-length "${MAX_LENGTH:-1024}" \
   --dpo-beta "${DPO_BETA:-0.1}" \
   --gradient-checkpointing \
