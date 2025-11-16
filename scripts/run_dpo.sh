@@ -62,7 +62,7 @@ accelerate launch \
   --gradient-accumulation "${GRAD_ACCUM:-16}" \
   --num-train-epochs "${NUM_EPOCHS:-2}" \
   --learning-rate "${L  EARNING_RATE:-3e-6}" \
-  --max-length "${MAX_LENGTH:-512}" \
+  --max-length "${MAX_LENGTH:-1024}" \
   --dpo-beta "${DPO_BETA:-0.1}" \
   --gradient-checkpointing \
   "${CHECKPOINT_ARGS[@]}" \
