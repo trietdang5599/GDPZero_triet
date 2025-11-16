@@ -209,7 +209,7 @@ class PersuadeeModel(DialogModel):
 				da = classified
 			elif parsed_da is None and selected_da:
 				da = selected_da
-		if da == PersuasionGame.U_NoDonation and self._looks_like_question(user_resp):
+		if self._looks_like_question(user_resp):
 			da = PersuasionGame.U_Neutral
 		return da, user_resp
 
