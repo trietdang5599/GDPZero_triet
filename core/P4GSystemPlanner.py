@@ -136,10 +136,11 @@ class P4GSystemPlanner(DialogPlanner):
 			return None
 		try:
 			data = self.generation_model.generate(prompt, **self.persona_infer_args)
-			try:
-				resp = self.generation_model._cleaned_resp(data, prompt)[0]
-			except Exception:
-				resp = data[0].get("generated_text", "").strip() if data else ""
+			resp = ""
+			if data:
+				raw_resp = data[0].get("generated_text", "")
+				if isinstance(raw_resp, str):
+					resp = raw_resp.strip()
 			return self._parse_persona_inference(resp)
 		except Exception as exc:  # pragma: no cover
 			logger.debug("Failed to infer persona traits: %s", exc)
