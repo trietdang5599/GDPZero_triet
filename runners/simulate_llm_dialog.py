@@ -115,7 +115,7 @@ def _build_agents_and_game(args):
 			"return_full_text": False,
     		"stop_sequences": ["\nUser:", "\nPersuadee:"]
 		},
-		use_persona_context=getattr(args, "persuader_use_persona", False),
+		infer_persona_persuadee=getattr(args, "infer_persona_persuadee", False),
 	)
 	persuadee = UsrModel(
 		dialog_acts=usr_das,
@@ -162,6 +162,7 @@ def simulate_dialog(
 	dialog_id: Optional[str] = None,
 	anchor_dataset: Optional[Path] = None,
 	persuadee_persona_enabled: bool = False,
+	infer_persona_persuadee: bool = False,
 ) -> dict:
 	state = game.init_dialog()
 	conversation: List[dict] = []
@@ -191,6 +192,7 @@ def simulate_dialog(
 			persona_profile.get("decision_making_style", "N/A"),
 		)
 		logger.info("Persona description: %s", persona_profile.get("description", ""))
+	infer_persona_profile: Optional[dict] = None
 
 	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)
@@ -207,6 +209,16 @@ def simulate_dialog(
 		# best_action = game.system_agent.dialog_acts.index(selected_da)
 		# sys_da = selected_da
 		valid_moves = planner.get_valid_moves(state)
+		persona_hint: Optional[dict] = None
+		if infer_persona_persuadee:
+			infer_fn = getattr(planner, "infer_persona_profile", None)
+			if callable(infer_fn):
+				persona_hint = infer_fn(state)
+			if persona_hint:
+				setattr(state, "_infer_persona_persuadee", persona_hint)
+				infer_persona_persuadee = persona_hint
+			elif hasattr(state, "_infer_persona_persuadee"):
+				setattr(state, "_infer_persona_persuadee", None)
 		action_prob, _ = planner.predict(state)
 		action_prob = np.asarray(action_prob, dtype=np.float64)
 		valid_moves = np.asarray(valid_moves, dtype=np.float64)
@@ -247,8 +259,14 @@ def simulate_dialog(
 				"user_utterance": user_utt,
 				"turn_type": "simulated",
 				"anchor_dialog_id": None,
+				"persona_hint": None,
 			}
 		)
+		if persona_hint:
+			conversation[-1]["persona_hint"] = {
+				"personality": persona_hint.get("big_five", ""),
+				"decision_making_style": persona_hint.get("decision_making_style", ""),
+			}
 
 		if user_da == PersuasionGame.U_Donate:
 			break
@@ -259,6 +277,7 @@ def simulate_dialog(
 		"turns": conversation,
 		"outcome": final_outcome,
 		"persona_profile": persona_profile,
+		"infer_persona_persuadee": infer_persona_persuadee,
 	}
 	return sim_result
 
@@ -356,7 +375,7 @@ def parse_args() -> argparse.Namespace:
 		help="Expose persuadee personality and decision-making style to Persuadee prompts.",
 	)
 	parser.add_argument(
-		"--persuader-use-persona",
+		"--infer-persona-persuadee",
 		action="store_true",
 		help="Expose persuadee personality and decision-making style to Persuader prompts.",
 	)
@@ -443,6 +462,7 @@ def main() -> None:
 			dialog_id=dialog_id,
 			anchor_dataset=anchor_dataset,
 			persuadee_persona_enabled=args.use_persona,
+			infer_persona_persuadee=args.infer_persona_persuadee,
 		)
 		results.append(sim_result)
 		pp = sim_result.get("persona_profile") or {}
@@ -453,6 +473,13 @@ def main() -> None:
 				pp.get("decision_making_style", "N/A"),
 			)
 			logger.info("Persona description: %s", pp.get("description", ""))
+		infer_pp = sim_result.get("infer_persona_persuadee") or {}
+		if infer_pp:
+			logger.info(
+				"Persuader persona hints | Big-Five: %s | Decision-Making: %s",
+				infer_pp.get("big_five", "N/A"),
+				infer_pp.get("decision_making_style", "N/A"),
+			)
 		for turn in sim_result["turns"]:
 			logger.info(
 				"[Turn %d][%s] SYS(%s): %s",

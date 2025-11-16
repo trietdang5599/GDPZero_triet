@@ -19,12 +19,12 @@ class PersuaderModel(DialogModel):
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
 			inference_args: dict = {},
-			use_persona_context: bool = False):
+			infer_persona_persuadee: bool = False):
 		super().__init__()
 		self.conv_examples = conv_examples
 		self.backbone_model = backbone_model
 		self.max_hist_num_turns = max_hist_num_turns
-		self.use_persona_context = use_persona_context
+		self.infer_persona_persuadee = infer_persona_persuadee
 		# prompts and DAs
 		self.da_prompts_mapping = {
 			da: desc for da, desc in SYSTEM_DIALOG_ACT_DEFINITIONS.items() if da in dialog_acts
@@ -55,9 +55,9 @@ class PersuaderModel(DialogModel):
 		return
 
 	def _get_persona_profile(self, state: DialogSession) -> Optional[dict]:
-		if not self.use_persona_context:
+		if not self.infer_persona_persuadee:
 			return None
-		return getattr(state, "_persona_profile", None)
+		return getattr(state, "_infer_persona_persuadee", None)
 
 	def _build_persona_context(self, state: DialogSession) -> str:
 		# logger.info("Is Persuader knew personality and decision making style: %s", self.use_persona_context)

@@ -1,7 +1,9 @@
 import logging
+import re
+
 import numpy as np
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from core.helpers import DialogSession
 from core.gen_models import GenerationModel
 from core.game import PersuasionGame
@@ -44,7 +46,102 @@ class P4GSystemPlanner(DialogPlanner):
 			"do_sample": True,
 			"num_return_sequences": 15,
 		}
+		self.persona_infer_args = {
+			"max_new_tokens": 64,
+			"temperature": 0.2,
+			"do_sample": False,
+			"return_full_text": False,
+		}
+		self._persona_min_user_turns = 1
+		self._persona_hist_turns = max(3, self.max_hist_num_turns)
 		return
+
+	def _recent_dialog_context(self, state: DialogSession) -> str:
+		return state.to_string_rep(
+			keep_sys_da=False,
+			keep_user_da=False,
+			max_turn_to_display=self._persona_hist_turns,
+		).strip()
+
+	def _build_persona_inference_prompt(self, state: DialogSession) -> str:
+		user_utts = [utt.strip() for role, _da, utt in state if role == PersuasionGame.USR and utt.strip()]
+		if len(user_utts) < self._persona_min_user_turns:
+			return ""
+		context = self._recent_dialog_context(state)
+		if not context:
+			return ""
+		instructions = (
+			"You are drafting persona hints for the Persuader.\n"
+			"Write two short lines.\n"
+			"Line 1 format: Active cue: they show <trait> traits.\n"
+			"Line 2 format: Decision tendency this turn: they favor a <style> style.\n"
+			"Use Big-Five traits (openness, conscientiousness, extraversion, agreeableness, neuroticism) "
+			"and decision styles (analytical, behavioral, conceptual, directive).\n"
+			"Base your answer only on the conversation."
+		)
+		example = (
+			"Example persona hint:\n"
+			"Active cue: they show neuroticism traits.\n"
+			"Decision tendency this turn: they favor a analytical style."
+		)
+		return "\n\n".join(
+			[
+				"Conversation so far:",
+				context,
+				"Persona hints template:",
+				"Active cue: they show <trait> traits.\nDecision tendency this turn: they favor a <style> style.",
+				example,
+				"Instructions:",
+				instructions,
+				"Persona hints:",
+			]
+		).strip()
+
+	def _parse_persona_inference(self, resp: str) -> Optional[dict]:
+		text = (resp or "").strip()
+		if not text:
+			return None
+		pattern = re.compile(
+			r"Active cue:\s*they show\s*(?P<trait>[A-Za-z\s-]+?)\s*traits?.*?"
+			r"Decision tendency this turn:\s*they\s*favor\s*a\s*(?P<style>[A-Za-z\s-]+?)\s*style",
+			re.IGNORECASE | re.DOTALL,
+		)
+		match = pattern.search(text)
+		if not match:
+			lines = [line.strip() for line in text.splitlines() if line.strip()]
+			if len(lines) >= 2:
+				trait = lines[0].split(":", 1)[-1].replace("traits", "").strip()
+				style = lines[1].split(":", 1)[-1].replace("style", "").strip()
+			else:
+				return None
+		else:
+			trait = match.group("trait").strip()
+			style = match.group("style").strip()
+		if not trait and not style:
+			return None
+		description = (
+			f"Active cue: they show {trait} traits. Decision tendency: {style} style."
+		)
+		return {
+			"big_five": trait,
+			"decision_making_style": style,
+			"description": description,
+		}
+
+	def infer_persona_profile(self, state: DialogSession) -> Optional[dict]:
+		prompt = self._build_persona_inference_prompt(state)
+		if not prompt:
+			return None
+		try:
+			data = self.generation_model.generate(prompt, **self.persona_infer_args)
+			try:
+				resp = self.generation_model._cleaned_resp(data, prompt)[0]
+			except Exception:
+				resp = data[0].get("generated_text", "").strip() if data else ""
+			return self._parse_persona_inference(resp)
+		except Exception as exc:  # pragma: no cover
+			logger.debug("Failed to infer persona traits: %s", exc)
+		return None
 
 	def process_exp(self, keep_sys_da=True, keep_user_da=False):
 		prompt_exps = ""

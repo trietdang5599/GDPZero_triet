@@ -4,6 +4,7 @@ class DialogSession():
 		self.USR = user_name
 		self.history: list = []  # [(role, da, utt), ....]
 		self._persona_profile = None
+		self._infer_persona_persuadee = None
 		return
 	
 	def from_history(self, history):
@@ -38,6 +39,8 @@ class DialogSession():
 		new_session.from_history(self.history)
 		if hasattr(self, "_persona_profile"):
 			new_session._persona_profile = self._persona_profile
+		if hasattr(self, "_infer_persona_persuadee"):
+			new_session._infer_persona_persuadee = self._infer_persona_persuadee
 		return new_session
 
 	def add_single(self, role, da, utt):
