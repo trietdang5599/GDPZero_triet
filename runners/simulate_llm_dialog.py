@@ -217,6 +217,7 @@ def simulate_dialog(
 			if persona_hint:
 				setattr(state, "_infer_persona_persuadee", persona_hint)
 				infer_persona_persuadee = persona_hint
+				logger.info("infer_persona_persuadee: %s", infer_persona_persuadee)
 			elif hasattr(state, "_infer_persona_persuadee"):
 				setattr(state, "_infer_persona_persuadee", None)
 		action_prob, _ = planner.predict(state)
