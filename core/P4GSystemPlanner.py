@@ -101,7 +101,6 @@ class P4GSystemPlanner(DialogPlanner):
 
 	def _parse_persona_inference(self, resp: str) -> Optional[dict]:
 		text = (resp or "").strip()
-		logger.info("prompt infer text: %s", text)
 		if not text:
 			return None
 		pattern = re.compile(
