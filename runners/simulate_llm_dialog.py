@@ -192,7 +192,7 @@ def simulate_dialog(
 			persona_profile.get("decision_making_style", "N/A"),
 		)
 		logger.info("Persona description: %s", persona_profile.get("description", ""))
-	infer_persona_profile: Optional[dict] = None
+	# infer_persona_profile: Optional[dict] = Nones
 
 	for _ in range(remaining_turns):
 		final_outcome = game.get_dialog_ended(state)

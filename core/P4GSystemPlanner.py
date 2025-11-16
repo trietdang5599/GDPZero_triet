@@ -99,6 +99,7 @@ class P4GSystemPlanner(DialogPlanner):
 
 	def _parse_persona_inference(self, resp: str) -> Optional[dict]:
 		text = (resp or "").strip()
+		logger.info("prompt infer text: %s", text)
 		if not text:
 			return None
 		pattern = re.compile(
@@ -130,6 +131,7 @@ class P4GSystemPlanner(DialogPlanner):
 
 	def infer_persona_profile(self, state: DialogSession) -> Optional[dict]:
 		prompt = self._build_persona_inference_prompt(state)
+		logger.info("prompt infer: %s", prompt)
 		if not prompt:
 			return None
 		try:
