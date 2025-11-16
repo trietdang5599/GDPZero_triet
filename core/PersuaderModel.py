@@ -60,8 +60,8 @@ class PersuaderModel(DialogModel):
 		return getattr(state, "_infer_persona_persuadee", None)
 
 	def _build_persona_context(self, state: DialogSession) -> str:
-		# logger.info("Is Persuader knew personality and decision making style: %s", self.use_persona_context)
-		if not self.use_persona_context:
+		# logger.info("Is Persuader knew personality and decision making style: %s", self.infer_persona_persuadee)
+		if not self.infer_persona_persuadee:
 			return ""
 		profile = self._get_persona_profile(state)
 		if not profile:
@@ -160,14 +160,14 @@ class PersuaderChatModel(PersuaderModel):
 			max_hist_num_turns: int = 5,
 			conv_examples: List[DialogSession] = [],
 			inference_args: dict = {},
-			use_persona_context: bool = False):
+			infer_persona_persuadee: bool = False):
 		super().__init__(
 			dialog_acts=dialog_acts,
 			backbone_model=backbone_model,
 			max_hist_num_turns=max_hist_num_turns,
 			conv_examples=conv_examples,
 			inference_args=inference_args,
-			use_persona_context=use_persona_context
+			infer_persona_persuadee=infer_persona_persuadee
 		)
 		self.inference_args = {
 			"max_new_tokens": 128,
